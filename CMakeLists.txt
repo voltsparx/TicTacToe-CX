@@ -40,6 +40,8 @@ endif()
 
 add_executable(${PROJECT_NAME} ${SOURCES})
 
+set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "tictactoe-cx")
+
 target_compile_options(${PROJECT_NAME} PRIVATE
     $<$<C_COMPILER_ID:MSVC>:/W4>
     $<$<C_COMPILER_ID:GNU,Clang>:-Wall -Wextra -Wpedantic>
