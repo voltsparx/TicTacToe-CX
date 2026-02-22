@@ -108,7 +108,7 @@ TicTacToe-CX/
 
 ## License
 
-MIT License - Created by voltsparx
+See [LICENSE](LICENSE) file.
 
 ## Author
 
