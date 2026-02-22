@@ -1,0 +1,126 @@
+# TicTacToe-CX
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Version-1.0.0-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/C-99-green.svg" alt="C Standard">
+  <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License">
+</p>
+
+A professional-grade Tic Tac Toe game written in C, featuring CLI with beautiful ANSI colors, AI opponents, and LAN multiplayer.
+
+## Features
+
+- **Single Player vs AI**
+  - Easy: Random moves (great for beginners)
+  - Medium: Blocks wins and tries to win
+  - Hard: Minimax algorithm (unbeatable!)
+
+- **Two Player (Local)**
+  - Play on the same machine
+  - Choose your symbol (X or O)
+
+- **LAN Multiplayer**
+  - Host or join games via TCP sockets
+  - Real-time board synchronization
+
+- **Beautiful CLI**
+  - ANSI color themes (Default, Dark, Light, Retro)
+  - Animated title and AI thinking indicators
+  - Clean ASCII board rendering
+
+- **Customizable Settings**
+  - Board sizes: 3x3, 4x4, 5x5
+  - Optional timer per move
+  - Configurable color themes
+
+## Screenshots
+
+```
+  ██████╗ ██╗      █████╗ ██████╗  █████╗ ██████╗ ██████╗ ███████╗██████╗ 
+ ██╔════╝ ██║     ██╔══██╗██╔══██╗██╔══██╗██╔══██╗██╔══██╗██╔════╝██╔══██╗
+ ██║  ███╗██║     ███████║██████╔╝███████║██████╔╝██████╔╝█████╗  ██║  ██║
+ ██║   ██║██║     ██╔══██║██╔═══╝ ██╔══██║██╔══██╗██╔══██╗██╔══╝  ██║  ██║
+ ╚██████╔╝███████╗██║  ██║██║     ██║  ██║██║  ██║██████╔╝███████╗██████╔╝
+  ╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ ╚══════╝╚═════╝ 
+                    ╔═══════════════════════════════╗
+                    ║   TicTacToe-CX v1.0.0        ║
+                    ║   Professional C Implementation║
+                    ╚═══════════════════════════════╝
+```
+
+## Building
+
+### Prerequisites
+
+- C compiler (gcc, clang, or MSVC)
+- CMake 3.10 or higher
+
+### Build Instructions
+
+```bash
+# Windows (MinGW)
+mkdir build && cd build
+cmake .. -G "MinGW Makefiles"
+cmake --build .
+
+# Windows (Visual Studio)
+mkdir build && cd build
+cmake .. -G "Visual Studio 16 2019"
+cmake --build .
+
+# Linux/macOS
+mkdir build && cd build
+cmake ..
+make
+```
+
+### Running
+
+```bash
+# Run the executable
+./TicTacToe-CX
+```
+
+## How to Play
+
+1. **Select Game Mode** from the main menu
+2. **Enter moves** using row and column numbers (e.g., `1 1` for top-left)
+3. **Game controls**:
+   - During AI game: Your symbol is X
+   - Enter coordinates as: `row col`
+   - Press Q to quit to menu
+
+## Configuration
+
+Settings are stored in `config/config.ini`:
+- Board size (3-5)
+- AI difficulty
+- Timer settings
+- Color theme
+
+## Project Structure
+
+```
+TicTacToe-CX/
+├── src/
+│   ├── main.c      # Main game loop and menus
+│   ├── game.c/h    # Core game logic
+│   ├── cli.c/h     # CLI rendering with ANSI colors
+│   ├── ai.c/h      # AI opponents
+│   ├── network.c/h # LAN multiplayer
+│   └── utils.c/h   # Config and scoring
+├── config/
+│   └── config.ini
+├── saves/
+│   └── highscores.txt
+├── CMakeLists.txt
+└── README.md
+```
+
+## License
+
+MIT License - Created by voltsparx
+
+## Author
+
+- **voltsparx** - voltsparx@gmail.com
