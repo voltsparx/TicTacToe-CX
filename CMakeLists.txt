@@ -54,7 +54,7 @@ endif()
 
 message(STATUS "")
 message(STATUS "TicTacToe-CX Build Configuration")
-message(STATUS "  Version: 1.0.0")
+message(STATUS "  Version: 1.0")
 message(STATUS "  C Standard: C99")
 message(STATUS "  Platform: ${CMAKE_SYSTEM_NAME}")
 message(STATUS "  Features: CLI, AI, Network, Achievements, Replay")

@@ -1,7 +1,7 @@
 # TicTacToe-CX
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-1.0.0-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Version-1.0-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/C-99-green.svg" alt="C Standard">
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License">
 </p>
@@ -35,18 +35,7 @@ A professional-grade Tic Tac Toe game written in C, featuring CLI with beautiful
 
 ## Screenshots
 
-```
-  ██████╗ ██╗      █████╗ ██████╗  █████╗ ██████╗ ██████╗ ███████╗██████╗ 
- ██╔════╝ ██║     ██╔══██╗██╔══██╗██╔══██╗██╔══██╗██╔══██╗██╔════╝██╔══██╗
- ██║  ███╗██║     ███████║██████╔╝███████║██████╔╝██████╔╝█████╗  ██║  ██║
- ██║   ██║██║     ██╔══██║██╔═══╝ ██╔══██║██╔══██╗██╔══██╗██╔══╝  ██║  ██║
- ╚██████╔╝███████╗██║  ██║██║     ██║  ██║██║  ██║██████╔╝███████╗██████╔╝
-  ╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ ╚══════╝╚═════╝ 
-                    ╔═══════════════════════════════╗
-                    ║   TicTacToe-CX v1.0.0        ║
-                    ║   Professional C Implementation║
-                    ╚═══════════════════════════════╝
-```
+See the game in action when you run it!
 
 ## Building
 

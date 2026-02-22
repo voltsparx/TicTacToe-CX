@@ -34,20 +34,7 @@ void cli_print_title(void) {
     cli_clear_screen();
     print_theme_colors();
     
-    const char* title = 
-        ANSI_CYAN ANSI_BOLD
-        "  ██████╗ ██╗      █████╗ ██████╗  █████╗ ██████╗ ██████╗ ███████╗██████╗ \n"
-        " ██╔════╝ ██║     ██╔══██╗██╔══██╗██╔══██╗██╔══██╗██╔══██╗██╔════╝██╔══██╗\n"
-        " ██║  ███╗██║     ███████║██████╔╝███████║██████╔╝██████╔╝█████╗  ██║  ██║\n"
-        " ██║   ██║██║     ██╔══██║██╔═══╝ ██╔══██║██╔══██╗██╔══██╗██╔══╝  ██║  ██║\n"
-        " ╚██████╔╝███████╗██║  ██║██║     ██║  ██║██║  ██║██████╔╝███████╗██████╔╝\n"
-        "  ╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ ╚══════╝╚═════╝ \n"
-        ANSI_YELLOW "                    ╔═══════════════════════════════╗\n"
-        "                    ║   " ANSI_BOLD "TicTacToe-CX" ANSI_YELLOW " v1.0.0        ║\n"
-        "                    ║   Professional C Implementation  ║\n"
-        "                    ╚═══════════════════════════════╝" ANSI_RESET "\n\n";
-    
-    printf("%s", title);
+    printf(ANSI_CYAN ANSI_BOLD "\n  TicTacToe-CX " ANSI_YELLOW "v1.0\n\n" ANSI_RESET);
 }
 
 void cli_print_main_menu(void) {
