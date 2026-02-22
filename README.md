@@ -6,14 +6,14 @@
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License">
 </p>
 
-A professional-grade Tic Tac Toe game written in C, featuring CLI with beautiful ANSI colors, AI opponents, and LAN multiplayer.
+A Tic Tac Toe game written in C with CLI, AI opponents, and LAN multiplayer.
 
 ## Features
 
 - **Single Player vs AI**
   - Easy: Random moves (great for beginners)
   - Medium: Blocks wins and tries to win
-  - Hard: Minimax algorithm (unbeatable!)
+  - Hard: Minimax algorithm
 
 - **Two Player (Local)**
   - Play on the same machine
@@ -23,10 +23,10 @@ A professional-grade Tic Tac Toe game written in C, featuring CLI with beautiful
   - Host or join games via TCP sockets
   - Real-time board synchronization
 
-- **Beautiful CLI**
+- **CLI**
   - ANSI color themes (Default, Dark, Light, Retro)
-  - Animated title and AI thinking indicators
-  - Clean ASCII board rendering
+  - AI thinking indicators
+  - ASCII board rendering
 
 - **Customizable Settings**
   - Board sizes: 3x3, 4x4, 5x5
