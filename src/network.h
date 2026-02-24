@@ -16,12 +16,19 @@ typedef enum {
     NET_CLIENT
 } NetworkRole;
 
+typedef enum {
+    NET_SECURITY_NONE,
+    NET_SECURITY_OPENSSL,
+    NET_SECURITY_LEGACY
+} NetworkSecurityMode;
+
 typedef struct {
     int listen_sockfd;
     int sockfd;
     NetworkRole role;
     bool connected;
     bool security_ready;
+    NetworkSecurityMode security_mode;
     char host_ip[16];
     int port;
     char passphrase[NETWORK_PASSPHRASE_MAX];
@@ -31,6 +38,10 @@ typedef struct {
     uint8_t recv_iv_prefix[4];
     uint64_t tx_seq;
     uint64_t rx_seq;
+    uint64_t legacy_key_seed;
+    uint64_t legacy_session_key;
+    uint32_t legacy_tx_nonce;
+    uint32_t legacy_rx_nonce;
 } Network;
 
 typedef struct {

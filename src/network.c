@@ -29,43 +29,64 @@
 #define NETWORK_HANDSHAKE_MAGIC 0x48584354u
 #define NETWORK_FRAME_MAGIC 0x46584354u
 #define NETWORK_PROTOCOL_VERSION 1u
+
 #define PBKDF2_ITERS 200000
+#define GCM_TAG_SIZE 16u
+#define PACKET_BYTES ((size_t)sizeof(NetworkPacket))
+#define FRAME_SIZE (4u + 8u + PACKET_BYTES + GCM_TAG_SIZE)
 
 #define HANDSHAKE_CLIENT_HELLO 1u
 #define HANDSHAKE_SERVER_HELLO 2u
 
 #define HANDSHAKE_CLIENT_SIZE (4u + 1u + 1u + 2u + 16u + 12u + 4u + 32u)
 #define HANDSHAKE_SERVER_SIZE (4u + 1u + 1u + 2u + 16u + 12u + 12u + 4u + 32u)
-#define GCM_TAG_SIZE 16u
-#define PACKET_BYTES ((size_t)sizeof(NetworkPacket))
-#define FRAME_SIZE (4u + 8u + PACKET_BYTES + GCM_TAG_SIZE)
+
+typedef struct {
+    uint32_t magic;
+    uint8_t type;
+    uint8_t reserved[3];
+    uint64_t client_nonce;
+    uint64_t server_nonce;
+    uint32_t proof;
+    uint32_t reserved2;
+} LegacyHandshakePacket;
+
+typedef struct {
+    uint32_t magic;
+    uint32_t nonce;
+    uint32_t mac;
+    NetworkPacket packet;
+} LegacySecureFrame;
 
 static void close_socket_if_open(int* sockfd) {
-    if (!sockfd || *sockfd == INVALID_SOCKET) {
-        return;
-    }
+    if (!sockfd || *sockfd == INVALID_SOCKET) return;
     CLOSE_SOCKET(*sockfd);
     *sockfd = INVALID_SOCKET;
 }
 
 static void reset_security_state(Network* net) {
-    if (!net) {
-        return;
-    }
+    if (!net) return;
+
     net->security_ready = false;
+    net->security_mode = NET_SECURITY_NONE;
+
     memset(net->send_key, 0, sizeof(net->send_key));
     memset(net->recv_key, 0, sizeof(net->recv_key));
     memset(net->send_iv_prefix, 0, sizeof(net->send_iv_prefix));
     memset(net->recv_iv_prefix, 0, sizeof(net->recv_iv_prefix));
     net->tx_seq = 0;
     net->rx_seq = 0;
+
+    net->legacy_session_key = 0;
+    net->legacy_tx_nonce = 0;
+    net->legacy_rx_nonce = 0;
 }
 
 static void write_u32_be(uint8_t* out, uint32_t value) {
     out[0] = (uint8_t)(value >> 24);
     out[1] = (uint8_t)(value >> 16);
     out[2] = (uint8_t)(value >> 8);
-    out[3] = (uint8_t)(value);
+    out[3] = (uint8_t)value;
 }
 
 static uint32_t read_u32_be(const uint8_t* in) {
@@ -117,9 +138,7 @@ static bool send_all(int sockfd, const char* data, size_t len) {
     size_t sent_total = 0;
     while (sent_total < len) {
         int sent = send(sockfd, data + sent_total, (int)(len - sent_total), 0);
-        if (sent <= 0) {
-            return false;
-        }
+        if (sent <= 0) return false;
         sent_total += (size_t)sent;
     }
     return true;
@@ -129,25 +148,19 @@ static bool recv_all(int sockfd, char* data, size_t len) {
     size_t recv_total = 0;
     while (recv_total < len) {
         int received = recv(sockfd, data + recv_total, (int)(len - recv_total), 0);
-        if (received <= 0) {
-            return false;
-        }
+        if (received <= 0) return false;
         recv_total += (size_t)received;
     }
     return true;
 }
 
 static bool random_bytes(uint8_t* out, size_t len) {
-    if (!out || len > INT_MAX) {
-        return false;
-    }
+    if (!out || len > INT_MAX) return false;
     return RAND_bytes(out, (int)len) == 1;
 }
 
 static bool hmac_sha256(const uint8_t* key, size_t key_len, const uint8_t* msg, size_t msg_len, uint8_t out[32]) {
-    if (!key || !msg || !out || key_len > INT_MAX || msg_len > UINT_MAX) {
-        return false;
-    }
+    if (!key || !msg || !out || key_len > INT_MAX || msg_len > UINT_MAX) return false;
 
     unsigned int out_len = 0;
     unsigned char* result = HMAC(EVP_sha256(),
@@ -161,9 +174,7 @@ static bool hmac_sha256(const uint8_t* key, size_t key_len, const uint8_t* msg, 
 }
 
 static bool secure_equal(const uint8_t* a, const uint8_t* b, size_t len) {
-    if (!a || !b) {
-        return false;
-    }
+    if (!a || !b) return false;
     return CRYPTO_memcmp(a, b, len) == 0;
 }
 
@@ -215,9 +226,7 @@ static bool aes_gcm_encrypt(const uint8_t key[32],
                             uint8_t tag[GCM_TAG_SIZE]) {
     bool ok = false;
     EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
-    if (!ctx) {
-        return false;
-    }
+    if (!ctx) return false;
 
     int out_len = 0;
     int final_len = 0;
@@ -246,9 +255,7 @@ static bool aes_gcm_decrypt(const uint8_t key[32],
                             uint8_t* plaintext) {
     bool ok = false;
     EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
-    if (!ctx) {
-        return false;
-    }
+    if (!ctx) return false;
 
     int out_len = 0;
     int final_len = 0;
@@ -269,7 +276,92 @@ cleanup:
     return ok;
 }
 
-static bool send_secure_packet(Network* net, const NetworkPacket* pkt) {
+static uint64_t rotl64(uint64_t x, int shift) {
+    return (x << shift) | (x >> (64 - shift));
+}
+
+static uint64_t mix64(uint64_t value) {
+    value ^= value >> 30;
+    value *= 0xbf58476d1ce4e5b9ULL;
+    value ^= value >> 27;
+    value *= 0x94d049bb133111ebULL;
+    value ^= value >> 31;
+    return value;
+}
+
+static uint64_t fnv1a64(const unsigned char* data, size_t len) {
+    uint64_t hash = 1469598103934665603ULL;
+    for (size_t i = 0; i < len; i++) {
+        hash ^= (uint64_t)data[i];
+        hash *= 1099511628211ULL;
+    }
+    return hash;
+}
+
+static uint64_t derive_legacy_key_seed(const char* passphrase) {
+    const char* source = (passphrase && passphrase[0] != '\0') ? passphrase : NETWORK_DEFAULT_PASSPHRASE;
+    return mix64(fnv1a64((const unsigned char*)source, strlen(source)) ^ 0x93b82a5f21f5d97dULL);
+}
+
+static uint64_t generate_nonce64(const Network* net) {
+    uint64_t nonce = (uint64_t)(uintptr_t)net;
+    nonce ^= ((uint64_t)time(NULL) << 32);
+    nonce ^= (uint64_t)clock();
+    nonce ^= ((uint64_t)(rand() & 0xffff) << 48);
+    nonce ^= ((uint64_t)(rand() & 0xffff) << 32);
+    nonce ^= ((uint64_t)(rand() & 0xffff) << 16);
+    nonce ^= (uint64_t)(rand() & 0xffff);
+    return mix64(nonce);
+}
+
+static uint32_t legacy_handshake_proof(uint64_t key_seed, uint8_t type, uint64_t client_nonce, uint64_t server_nonce) {
+    uint64_t material = key_seed;
+    material ^= mix64(client_nonce);
+    material ^= rotl64(mix64(server_nonce), 17);
+    material ^= ((uint64_t)type << 56);
+    return (uint32_t)(mix64(material) & 0xffffffffu);
+}
+
+static uint64_t derive_legacy_session_key(uint64_t key_seed, uint64_t client_nonce, uint64_t server_nonce) {
+    uint64_t material = key_seed;
+    material ^= rotl64(client_nonce, 23);
+    material ^= rotl64(server_nonce, 41);
+    material ^= 0x9e3779b97f4a7c15ULL;
+    return mix64(material);
+}
+
+static uint64_t legacy_stream_next(uint64_t* state) {
+    uint64_t x = *state;
+    x ^= x >> 12;
+    x ^= x << 25;
+    x ^= x >> 27;
+    *state = x;
+    return x * 2685821657736338717ULL;
+}
+
+static void legacy_crypt_buffer(uint8_t* data, size_t len, uint64_t session_key, uint32_t nonce) {
+    uint64_t state = mix64(session_key ^ (((uint64_t)nonce << 32) | nonce) ^ 0xd6e8feb86659fd93ULL);
+    size_t idx = 0;
+
+    while (idx < len) {
+        uint64_t block = legacy_stream_next(&state);
+        for (int i = 0; i < 8 && idx < len; i++, idx++) {
+            data[idx] ^= (uint8_t)(block >> (i * 8));
+        }
+    }
+}
+
+static uint32_t legacy_frame_mac(uint64_t session_key, uint32_t nonce, const uint8_t* data, size_t len) {
+    uint64_t hash = 1469598103934665603ULL ^ mix64(session_key ^ nonce);
+    for (size_t i = 0; i < len; i++) {
+        hash ^= (uint64_t)data[i];
+        hash *= 1099511628211ULL;
+    }
+    hash ^= len;
+    hash = mix64(hash ^ rotl64(session_key, 29));
+    return (uint32_t)(hash & 0xffffffffu);
+}
+static bool send_openssl_packet(Network* net, const NetworkPacket* pkt) {
     if (!net || !pkt || !net->connected || net->sockfd == INVALID_SOCKET || !net->security_ready) {
         return false;
     }
@@ -286,29 +378,17 @@ static bool send_secure_packet(Network* net, const NetworkPacket* pkt) {
     uint8_t* cipher_out = frame + 12;
     uint8_t* tag_out = cipher_out + PACKET_BYTES;
 
-    if (!aes_gcm_encrypt(net->send_key,
-                         iv,
-                         (const uint8_t*)pkt,
-                         (int)PACKET_BYTES,
-                         cipher_out,
-                         tag_out)) {
+    if (!aes_gcm_encrypt(net->send_key, iv, (const uint8_t*)pkt, (int)PACKET_BYTES, cipher_out, tag_out)) {
         return false;
     }
 
     write_u32_be(frame, NETWORK_FRAME_MAGIC);
     write_u64_be(frame + 4, seq);
 
-    if (!send_all(net->sockfd, (const char*)frame, sizeof(frame))) {
-        net->connected = false;
-        close_socket_if_open(&net->sockfd);
-        reset_security_state(net);
-        return false;
-    }
-
-    return true;
+    return send_all(net->sockfd, (const char*)frame, sizeof(frame));
 }
 
-static bool receive_secure_packet(Network* net, NetworkPacket* pkt, int timeout_ms) {
+static bool receive_openssl_packet(Network* net, NetworkPacket* pkt, int timeout_ms) {
     if (!net || !pkt || !net->connected || net->sockfd == INVALID_SOCKET || !net->security_ready) {
         return false;
     }
@@ -320,36 +400,22 @@ static bool receive_secure_packet(Network* net, NetworkPacket* pkt, int timeout_
 
     uint8_t frame[FRAME_SIZE];
     if (!recv_all(net->sockfd, (char*)frame, sizeof(frame))) {
-        net->connected = false;
-        close_socket_if_open(&net->sockfd);
-        reset_security_state(net);
         return false;
     }
 
-    const uint32_t magic = read_u32_be(frame);
-    const uint64_t seq = read_u64_be(frame + 4);
+    uint32_t magic = read_u32_be(frame);
+    uint64_t seq = read_u64_be(frame + 4);
     const uint8_t* cipher_in = frame + 12;
     const uint8_t* tag_in = cipher_in + PACKET_BYTES;
 
     if (magic != NETWORK_FRAME_MAGIC || seq == 0 || seq <= net->rx_seq) {
-        net->connected = false;
-        close_socket_if_open(&net->sockfd);
-        reset_security_state(net);
         return false;
     }
 
     uint8_t iv[12];
     build_iv(net->recv_iv_prefix, seq, iv);
 
-    if (!aes_gcm_decrypt(net->recv_key,
-                         iv,
-                         cipher_in,
-                         (int)PACKET_BYTES,
-                         tag_in,
-                         (uint8_t*)pkt)) {
-        net->connected = false;
-        close_socket_if_open(&net->sockfd);
-        reset_security_state(net);
+    if (!aes_gcm_decrypt(net->recv_key, iv, cipher_in, (int)PACKET_BYTES, tag_in, (uint8_t*)pkt)) {
         return false;
     }
 
@@ -357,30 +423,89 @@ static bool receive_secure_packet(Network* net, NetworkPacket* pkt, int timeout_
     return true;
 }
 
+static bool send_legacy_packet(Network* net, const NetworkPacket* pkt) {
+    if (!net || !pkt || !net->connected || net->sockfd == INVALID_SOCKET || !net->security_ready) {
+        return false;
+    }
+
+    LegacySecureFrame frame;
+    memset(&frame, 0, sizeof(frame));
+    frame.magic = NETWORK_FRAME_MAGIC;
+    frame.nonce = ++net->legacy_tx_nonce;
+    if (frame.nonce == 0) {
+        frame.nonce = ++net->legacy_tx_nonce;
+    }
+
+    memcpy(&frame.packet, pkt, sizeof(frame.packet));
+    legacy_crypt_buffer((uint8_t*)&frame.packet, sizeof(frame.packet), net->legacy_session_key, frame.nonce);
+    frame.mac = legacy_frame_mac(net->legacy_session_key, frame.nonce, (const uint8_t*)&frame.packet, sizeof(frame.packet));
+
+    return send_all(net->sockfd, (const char*)&frame, sizeof(frame));
+}
+
+static bool receive_legacy_packet(Network* net, NetworkPacket* pkt, int timeout_ms) {
+    if (!net || !pkt || !net->connected || net->sockfd == INVALID_SOCKET || !net->security_ready) {
+        return false;
+    }
+
+    int ready = wait_socket_readable(net->sockfd, timeout_ms);
+    if (ready <= 0) {
+        return false;
+    }
+
+    LegacySecureFrame frame;
+    if (!recv_all(net->sockfd, (char*)&frame, sizeof(frame))) {
+        return false;
+    }
+
+    if (frame.magic != NETWORK_FRAME_MAGIC || frame.nonce <= net->legacy_rx_nonce) {
+        return false;
+    }
+
+    uint32_t expected = legacy_frame_mac(net->legacy_session_key, frame.nonce, (const uint8_t*)&frame.packet, sizeof(frame.packet));
+    if (expected != frame.mac) {
+        return false;
+    }
+
+    *pkt = frame.packet;
+    legacy_crypt_buffer((uint8_t*)pkt, sizeof(*pkt), net->legacy_session_key, frame.nonce);
+    net->legacy_rx_nonce = frame.nonce;
+    return true;
+}
+
 static bool send_packet(Network* net, const NetworkPacket* pkt) {
     if (!network_is_secure(net)) {
         return false;
     }
-    return send_secure_packet(net, pkt);
+
+    if (net->security_mode == NET_SECURITY_OPENSSL) {
+        return send_openssl_packet(net, pkt);
+    }
+    if (net->security_mode == NET_SECURITY_LEGACY) {
+        return send_legacy_packet(net, pkt);
+    }
+    return false;
 }
 
 static bool receive_packet(Network* net, NetworkPacket* pkt, int timeout_ms) {
     if (!network_is_secure(net)) {
         return false;
     }
-    return receive_secure_packet(net, pkt, timeout_ms);
+
+    if (net->security_mode == NET_SECURITY_OPENSSL) {
+        return receive_openssl_packet(net, pkt, timeout_ms);
+    }
+    if (net->security_mode == NET_SECURITY_LEGACY) {
+        return receive_legacy_packet(net, pkt, timeout_ms);
+    }
+    return false;
 }
 
-static bool host_perform_handshake(Network* net, int timeout_ms) {
+static bool host_perform_openssl_handshake(Network* net, int timeout_ms) {
     uint8_t client_msg[HANDSHAKE_CLIENT_SIZE];
     int ready = wait_socket_readable(net->sockfd, timeout_ms);
-    if (ready <= 0) {
-        return false;
-    }
-
-    if (!recv_all(net->sockfd, (char*)client_msg, sizeof(client_msg))) {
-        return false;
-    }
+    if (ready <= 0) return false;
+    if (!recv_all(net->sockfd, (char*)client_msg, sizeof(client_msg))) return false;
 
     if (read_u32_be(client_msg) != NETWORK_HANDSHAKE_MAGIC ||
         client_msg[4] != HANDSHAKE_CLIENT_HELLO ||
@@ -394,9 +519,7 @@ static bool host_perform_handshake(Network* net, int timeout_ms) {
     const uint8_t* client_hmac = client_msg + 40;
 
     uint8_t base_key[32];
-    if (!derive_base_key(net->passphrase, salt, base_key)) {
-        return false;
-    }
+    if (!derive_base_key(net->passphrase, salt, base_key)) return false;
 
     uint8_t expected_hmac[32];
     if (!hmac_sha256(base_key, sizeof(base_key), client_msg, 40, expected_hmac) ||
@@ -421,19 +544,12 @@ static bool host_perform_handshake(Network* net, int timeout_ms) {
     memcpy(server_msg + 36, server_nonce, 12);
     memcpy(server_msg + 48, server_prefix, 4);
 
-    if (!hmac_sha256(base_key, sizeof(base_key), server_msg, 52, server_msg + 52)) {
-        return false;
-    }
-
-    if (!send_all(net->sockfd, (const char*)server_msg, sizeof(server_msg))) {
-        return false;
-    }
+    if (!hmac_sha256(base_key, sizeof(base_key), server_msg, 52, server_msg + 52)) return false;
+    if (!send_all(net->sockfd, (const char*)server_msg, sizeof(server_msg))) return false;
 
     uint8_t key_c2s[32];
     uint8_t key_s2c[32];
-    if (!derive_session_keys(base_key, client_nonce, server_nonce, key_c2s, key_s2c)) {
-        return false;
-    }
+    if (!derive_session_keys(base_key, client_nonce, server_nonce, key_c2s, key_s2c)) return false;
 
     memcpy(net->send_key, key_s2c, sizeof(net->send_key));
     memcpy(net->recv_key, key_c2s, sizeof(net->recv_key));
@@ -442,11 +558,12 @@ static bool host_perform_handshake(Network* net, int timeout_ms) {
 
     net->tx_seq = 0;
     net->rx_seq = 0;
+    net->security_mode = NET_SECURITY_OPENSSL;
     net->security_ready = true;
     return true;
 }
 
-static bool client_perform_handshake(Network* net, int timeout_ms) {
+static bool client_perform_openssl_handshake(Network* net, int timeout_ms) {
     uint8_t salt[16];
     uint8_t client_nonce[12];
     uint8_t client_prefix[4];
@@ -457,9 +574,7 @@ static bool client_perform_handshake(Network* net, int timeout_ms) {
     }
 
     uint8_t base_key[32];
-    if (!derive_base_key(net->passphrase, salt, base_key)) {
-        return false;
-    }
+    if (!derive_base_key(net->passphrase, salt, base_key)) return false;
 
     uint8_t client_msg[HANDSHAKE_CLIENT_SIZE];
     memset(client_msg, 0, sizeof(client_msg));
@@ -469,24 +584,15 @@ static bool client_perform_handshake(Network* net, int timeout_ms) {
     memcpy(client_msg + 8, salt, 16);
     memcpy(client_msg + 24, client_nonce, 12);
     memcpy(client_msg + 36, client_prefix, 4);
+    if (!hmac_sha256(base_key, sizeof(base_key), client_msg, 40, client_msg + 40)) return false;
 
-    if (!hmac_sha256(base_key, sizeof(base_key), client_msg, 40, client_msg + 40)) {
-        return false;
-    }
-
-    if (!send_all(net->sockfd, (const char*)client_msg, sizeof(client_msg))) {
-        return false;
-    }
+    if (!send_all(net->sockfd, (const char*)client_msg, sizeof(client_msg))) return false;
 
     int ready = wait_socket_readable(net->sockfd, timeout_ms);
-    if (ready <= 0) {
-        return false;
-    }
+    if (ready <= 0) return false;
 
     uint8_t server_msg[HANDSHAKE_SERVER_SIZE];
-    if (!recv_all(net->sockfd, (char*)server_msg, sizeof(server_msg))) {
-        return false;
-    }
+    if (!recv_all(net->sockfd, (char*)server_msg, sizeof(server_msg))) return false;
 
     if (read_u32_be(server_msg) != NETWORK_HANDSHAKE_MAGIC ||
         server_msg[4] != HANDSHAKE_SERVER_HELLO ||
@@ -510,9 +616,7 @@ static bool client_perform_handshake(Network* net, int timeout_ms) {
 
     uint8_t key_c2s[32];
     uint8_t key_s2c[32];
-    if (!derive_session_keys(base_key, client_nonce, server_nonce, key_c2s, key_s2c)) {
-        return false;
-    }
+    if (!derive_session_keys(base_key, client_nonce, server_nonce, key_c2s, key_s2c)) return false;
 
     memcpy(net->send_key, key_c2s, sizeof(net->send_key));
     memcpy(net->recv_key, key_s2c, sizeof(net->recv_key));
@@ -521,10 +625,119 @@ static bool client_perform_handshake(Network* net, int timeout_ms) {
 
     net->tx_seq = 0;
     net->rx_seq = 0;
+    net->security_mode = NET_SECURITY_OPENSSL;
     net->security_ready = true;
     return true;
 }
 
+static bool host_perform_legacy_handshake(Network* net, int timeout_ms) {
+    LegacyHandshakePacket hello;
+    int ready = wait_socket_readable(net->sockfd, timeout_ms);
+    if (ready <= 0) return false;
+    if (!recv_all(net->sockfd, (char*)&hello, sizeof(hello))) return false;
+
+    if (hello.magic != NETWORK_HANDSHAKE_MAGIC || hello.type != HANDSHAKE_CLIENT_HELLO) {
+        return false;
+    }
+
+    uint32_t expected = legacy_handshake_proof(net->legacy_key_seed, HANDSHAKE_CLIENT_HELLO, hello.client_nonce, 0);
+    if (hello.proof != expected) {
+        return false;
+    }
+
+    LegacyHandshakePacket ack;
+    memset(&ack, 0, sizeof(ack));
+    ack.magic = NETWORK_HANDSHAKE_MAGIC;
+    ack.type = HANDSHAKE_SERVER_HELLO;
+    ack.client_nonce = hello.client_nonce;
+    ack.server_nonce = generate_nonce64(net);
+    ack.proof = legacy_handshake_proof(net->legacy_key_seed, HANDSHAKE_SERVER_HELLO, ack.client_nonce, ack.server_nonce);
+
+    if (!send_all(net->sockfd, (const char*)&ack, sizeof(ack))) {
+        return false;
+    }
+
+    net->legacy_session_key = derive_legacy_session_key(net->legacy_key_seed, ack.client_nonce, ack.server_nonce);
+    net->legacy_tx_nonce = 0;
+    net->legacy_rx_nonce = 0;
+    net->security_mode = NET_SECURITY_LEGACY;
+    net->security_ready = true;
+    return true;
+}
+
+static bool client_perform_legacy_handshake(Network* net, int timeout_ms) {
+    LegacyHandshakePacket hello;
+    memset(&hello, 0, sizeof(hello));
+    hello.magic = NETWORK_HANDSHAKE_MAGIC;
+    hello.type = HANDSHAKE_CLIENT_HELLO;
+    hello.client_nonce = generate_nonce64(net);
+    hello.proof = legacy_handshake_proof(net->legacy_key_seed, HANDSHAKE_CLIENT_HELLO, hello.client_nonce, 0);
+
+    if (!send_all(net->sockfd, (const char*)&hello, sizeof(hello))) {
+        return false;
+    }
+
+    int ready = wait_socket_readable(net->sockfd, timeout_ms);
+    if (ready <= 0) {
+        return false;
+    }
+
+    LegacyHandshakePacket ack;
+    memset(&ack, 0, sizeof(ack));
+    if (!recv_all(net->sockfd, (char*)&ack, sizeof(ack))) {
+        return false;
+    }
+
+    if (ack.magic != NETWORK_HANDSHAKE_MAGIC ||
+        ack.type != HANDSHAKE_SERVER_HELLO ||
+        ack.client_nonce != hello.client_nonce) {
+        return false;
+    }
+
+    uint32_t expected = legacy_handshake_proof(net->legacy_key_seed, HANDSHAKE_SERVER_HELLO, hello.client_nonce, ack.server_nonce);
+    if (ack.proof != expected) {
+        return false;
+    }
+
+    net->legacy_session_key = derive_legacy_session_key(net->legacy_key_seed, hello.client_nonce, ack.server_nonce);
+    net->legacy_tx_nonce = 0;
+    net->legacy_rx_nonce = 0;
+    net->security_mode = NET_SECURITY_LEGACY;
+    net->security_ready = true;
+    return true;
+}
+
+static NetworkSecurityMode detect_client_handshake_mode(Network* net, int timeout_ms) {
+    if (!net || !net->connected || net->sockfd == INVALID_SOCKET) {
+        return NET_SECURITY_NONE;
+    }
+
+    int ready = wait_socket_readable(net->sockfd, timeout_ms);
+    if (ready <= 0) {
+        return NET_SECURITY_NONE;
+    }
+
+    uint8_t probe[8];
+    int got = recv(net->sockfd, (char*)probe, (int)sizeof(probe), MSG_PEEK);
+    if (got < 6) {
+        return NET_SECURITY_NONE;
+    }
+
+    const uint8_t openssl_magic_be[4] = {0x48, 0x58, 0x43, 0x54};
+    if (memcmp(probe, openssl_magic_be, 4) == 0 &&
+        probe[4] == HANDSHAKE_CLIENT_HELLO &&
+        probe[5] == NETWORK_PROTOCOL_VERSION) {
+        return NET_SECURITY_OPENSSL;
+    }
+
+    uint32_t native_magic = 0;
+    memcpy(&native_magic, probe, sizeof(native_magic));
+    if (native_magic == NETWORK_HANDSHAKE_MAGIC && probe[4] == HANDSHAKE_CLIENT_HELLO) {
+        return NET_SECURITY_LEGACY;
+    }
+
+    return NET_SECURITY_NONE;
+}
 bool network_init(Network* net) {
     if (!net) return false;
 
@@ -554,6 +767,7 @@ void network_set_passphrase(Network* net, const char* passphrase) {
     const char* source = (passphrase && passphrase[0] != '\0') ? passphrase : NETWORK_DEFAULT_PASSPHRASE;
     strncpy(net->passphrase, source, NETWORK_PASSPHRASE_MAX - 1);
     net->passphrase[NETWORK_PASSPHRASE_MAX - 1] = '\0';
+    net->legacy_key_seed = derive_legacy_key_seed(net->passphrase);
     reset_security_state(net);
 }
 
@@ -681,15 +895,35 @@ bool network_secure_handshake(Network* net, int timeout_ms) {
     }
 
     bool ok = false;
+
     if (net->role == NET_HOST) {
-        ok = host_perform_handshake(net, timeout_ms);
-    } else if (net->role == NET_CLIENT) {
-        ok = client_perform_handshake(net, timeout_ms);
+        NetworkSecurityMode mode = detect_client_handshake_mode(net, timeout_ms);
+        if (mode == NET_SECURITY_OPENSSL) {
+            ok = host_perform_openssl_handshake(net, timeout_ms);
+        } else if (mode == NET_SECURITY_LEGACY) {
+            ok = host_perform_legacy_handshake(net, timeout_ms);
+        }
+    } else {
+        ok = client_perform_openssl_handshake(net, timeout_ms);
+        if (!ok) {
+            char ip_copy[sizeof(net->host_ip)];
+            int port = net->port;
+            strncpy(ip_copy, net->host_ip, sizeof(ip_copy) - 1);
+            ip_copy[sizeof(ip_copy) - 1] = '\0';
+
+            close_socket_if_open(&net->sockfd);
+            net->connected = false;
+            reset_security_state(net);
+
+            if (network_connect(net, ip_copy, port)) {
+                ok = client_perform_legacy_handshake(net, timeout_ms);
+            }
+        }
     }
 
     if (!ok) {
-        net->connected = false;
         close_socket_if_open(&net->sockfd);
+        net->connected = false;
         reset_security_state(net);
     }
 
@@ -697,7 +931,7 @@ bool network_secure_handshake(Network* net, int timeout_ms) {
 }
 
 bool network_is_secure(const Network* net) {
-    return net && net->connected && net->security_ready;
+    return net && net->connected && net->security_ready && net->security_mode != NET_SECURITY_NONE;
 }
 
 void network_close(Network* net) {
@@ -736,6 +970,7 @@ bool network_receive_move(Network* net, uint8_t* row, uint8_t* col, int timeout_
         if (col) *col = pkt.col;
         return true;
     }
+
     return false;
 }
 
@@ -747,6 +982,7 @@ bool network_sync_board(Network* net, Game* game) {
     pkt.type = PACKET_SYNC;
     memcpy(pkt.board, game->board, sizeof(game->board));
     pkt.current_player = game->current_player;
+
     return send_packet(net, &pkt);
 }
 
@@ -757,6 +993,7 @@ bool network_send_chat(Network* net, const char* msg) {
     memset(&pkt, 0, sizeof(pkt));
     pkt.type = PACKET_CHAT;
     strncpy(pkt.message, msg, BUFFER_SIZE - 1);
+
     return send_packet(net, &pkt);
 }
 
@@ -769,5 +1006,6 @@ bool network_receive_chat(Network* net, char* msg, int timeout_ms) {
         msg[BUFFER_SIZE - 1] = '\0';
         return true;
     }
+
     return false;
 }
