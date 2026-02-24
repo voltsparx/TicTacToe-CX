@@ -8,8 +8,6 @@
     #include <mmsystem.h>
 #else
     #include <unistd.h>
-    #include <fcntl.h>
-    #include <termios.h>
 #endif
 
 void sound_init(Sound* sound) {
@@ -91,31 +89,6 @@ void sound_play(Sound* sound, SoundType type) {
 }
 
 #else
-
-static void play_tone_unix(int freq, int duration_ms) {
-    if (freq <= 0 || duration_ms <= 0) return;
-    
-    int fd = open("/dev/tty", O_WRONLY);
-    if (fd < 0) {
-        printf("\a");
-        fflush(stdout);
-        return;
-    }
-    
-    struct termios old, new;
-    tcgetattr(fd, &old);
-    new = old;
-    new.c_lflag &= ~ICANON;
-    new.c_lflag &= ~ECHO;
-    tcsetattr(fd, TCSANOW, &new);
-    
-    write(fd, "\a", 1);
-    
-    usleep(duration_ms * 1000);
-    
-    tcsetattr(fd, TCSANOW, &old);
-    close(fd);
-}
 
 static void beep_ascii(int style) {
     switch (style) {

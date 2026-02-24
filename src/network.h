@@ -3,10 +3,12 @@
 
 #include "game.h"
 #include <stdbool.h>
+#include <stdint.h>
 
 #define DEFAULT_PORT 45678
 #define MAX_CLIENTS 1
 #define BUFFER_SIZE 256
+#define NETWORK_PASSPHRASE_MAX 64
 
 typedef enum {
     NET_NONE,
@@ -15,11 +17,20 @@ typedef enum {
 } NetworkRole;
 
 typedef struct {
+    int listen_sockfd;
     int sockfd;
     NetworkRole role;
     bool connected;
+    bool security_ready;
     char host_ip[16];
     int port;
+    char passphrase[NETWORK_PASSPHRASE_MAX];
+    uint8_t send_key[32];
+    uint8_t recv_key[32];
+    uint8_t send_iv_prefix[4];
+    uint8_t recv_iv_prefix[4];
+    uint64_t tx_seq;
+    uint64_t rx_seq;
 } Network;
 
 typedef struct {
@@ -38,8 +49,12 @@ typedef struct {
 #define PACKET_QUIT 5
 
 bool network_init(Network* net);
+void network_set_passphrase(Network* net, const char* passphrase);
 bool network_host(Network* net, int port);
+bool network_accept(Network* net, int timeout_ms);
 bool network_connect(Network* net, const char* ip, int port);
+bool network_secure_handshake(Network* net, int timeout_ms);
+bool network_is_secure(const Network* net);
 void network_close(Network* net);
 bool network_send_move(Network* net, uint8_t row, uint8_t col);
 bool network_receive_move(Network* net, uint8_t* row, uint8_t* col, int timeout_ms);

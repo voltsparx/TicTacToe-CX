@@ -1,9 +1,10 @@
 #include "achievements.h"
+#include "cli.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 
-static Achievement all_achievements[MAX_ACHIEVEMENTS] = {
+static const Achievement all_achievements[MAX_ACHIEVEMENTS] = {
     {ACHIEVEMENT_FIRST_WIN, "First Victory", "Win your first game", false, 0},
     {ACHIEVEMENT_WIN_5_GAMES, "Getting Good", "Win 5 games", false, 0},
     {ACHIEVEMENT_WIN_10_GAMES, "Pro Player", "Win 10 games", false, 0},
@@ -41,10 +42,11 @@ void achievements_init(AchievementsData* data) {
 
 bool achievements_load(AchievementsData* data, const char* filepath) {
     if (!data || !filepath) return false;
+
+    achievements_init(data);
     
     FILE* f = fopen(filepath, "r");
     if (!f) {
-        achievements_init(data);
         return false;
     }
     
@@ -53,14 +55,24 @@ bool achievements_load(AchievementsData* data, const char* filepath) {
         if (line[0] == '#' || line[0] == '\n') continue;
         
         int type;
-        bool unlocked;
+        int unlocked = 0;
         if (sscanf(line, "%d %d", &type, &unlocked) == 2) {
             if (type >= 0 && type < MAX_ACHIEVEMENTS) {
-                data->achievements[type].unlocked = unlocked;
-                if (unlocked) {
+                data->achievements[type].unlocked = (unlocked != 0);
+                if (unlocked != 0) {
                     data->unlocked_count++;
                 }
             }
+        } else if (sscanf(line, "wins %d", &data->wins) == 1) {
+            continue;
+        } else if (sscanf(line, "losses %d", &data->losses) == 1) {
+            continue;
+        } else if (sscanf(line, "draws %d", &data->draws) == 1) {
+            continue;
+        } else if (sscanf(line, "current_streak %d", &data->current_streak) == 1) {
+            continue;
+        } else if (sscanf(line, "best_streak %d", &data->best_streak) == 1) {
+            continue;
         }
     }
     
@@ -111,7 +123,7 @@ void achievements_check(AchievementsData* data, Game* game) {
     if (!data || !game) return;
     
     if (game->state == GAME_STATE_WIN) {
-        Player winner = game->current_player == PLAYER_X ? PLAYER_O : PLAYER_X;
+        Player winner = game_get_winner(game);
         bool player_won = (winner == game->player_symbol);
         
         if (player_won) {
@@ -149,12 +161,16 @@ void achievements_check(AchievementsData* data, Game* game) {
                 achievements_unlock(data, ACHIEVEMENT_STREAK_10);
             }
             
-            if (game->move_count >= 9) {
+            const int board_cells = game->size * game->size;
+            if (game->move_count >= board_cells - 1) {
                 achievements_unlock(data, ACHIEVEMENT_CLUTCH_PLAYER);
             }
             
-            if (game->board[1][1] == PLAYER_NONE || game->board[1][1] == winner) {
-                achievements_unlock(data, ACHIEVEMENT_PERFECT_GAME);
+            if (game->size % 2 == 1) {
+                int center = game->size / 2;
+                if (game->board[center][center] == PLAYER_NONE || game->board[center][center] == winner) {
+                    achievements_unlock(data, ACHIEVEMENT_PERFECT_GAME);
+                }
             }
         } else {
             data->losses++;
@@ -183,7 +199,7 @@ void achievements_print(AchievementsData* data) {
     for (int i = 0; i < data->total_achievements; i++) {
         if (data->achievements[i].unlocked) {
             printf(ANSI_GREEN "  [%c] " ANSI_RESET "%s\n", 
-                   '✓', data->achievements[i].name);
+                   '*', data->achievements[i].name);
             printf(ANSI_WHITE "        %s\n\n", 
                    data->achievements[i].description);
         } else {

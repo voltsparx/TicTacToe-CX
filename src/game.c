@@ -159,7 +159,7 @@ void game_switch_player(Game* game) {
     game->current_player = (game->current_player == PLAYER_X) ? PLAYER_O : PLAYER_X;
 }
 
-char game_get_cell_char(Game* game, uint8_t row, uint8_t col) {
+char game_get_cell_char(const Game* game, uint8_t row, uint8_t col) {
     const Player p = game->board[row][col];
     if (p == PLAYER_X) return game->symbol_x;
     if (p == PLAYER_O) return game->symbol_o;
@@ -258,4 +258,11 @@ bool game_update_timer(Game* game) {
 
 int game_get_timer_remaining(Game* game) {
     return game->time_remaining;
+}
+
+Player game_get_winner(const Game* game) {
+    if (!game || game->state != GAME_STATE_WIN) {
+        return PLAYER_NONE;
+    }
+    return game->current_player;
 }

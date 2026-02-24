@@ -12,6 +12,8 @@ include_directories(${CMAKE_SOURCE_DIR}/src)
 
 option(ENABLE_SDL2 "Enable SDL2 GUI support" ON)
 
+find_package(OpenSSL REQUIRED)
+
 set(SOURCES
     src/main.c
     src/game.c
@@ -22,6 +24,7 @@ set(SOURCES
     src/achievements.c
     src/replay.c
     src/sound.c
+    src/gui.c
 )
 
 if(ENABLE_SDL2)
@@ -29,7 +32,6 @@ if(ENABLE_SDL2)
     if(SDL2_FOUND)
         add_definitions(-DSDL2_AVAILABLE)
         include_directories(${SDL2_INCLUDE_DIRS})
-        list(APPEND SOURCES src/gui.c)
         message(STATUS "SDL2 support: ENABLED")
     else()
         message(STATUS "SDL2 support: NOT FOUND (GUI disabled)")
@@ -48,10 +50,12 @@ target_compile_options(${PROJECT_NAME} PRIVATE
 )
 
 if(WIN32)
-    target_link_libraries(${PROJECT_NAME} ws2_32 winmm)
+    target_link_libraries(${PROJECT_NAME} ws2_32 winmm OpenSSL::Crypto)
     if(SDL2_FOUND)
         target_link_libraries(${PROJECT_NAME} ${SDL2_LIBRARIES})
     endif()
+else()
+    target_link_libraries(${PROJECT_NAME} OpenSSL::Crypto)
 endif()
 
 message(STATUS "")
@@ -60,3 +64,4 @@ message(STATUS "  Version: 1.0")
 message(STATUS "  C Standard: C99")
 message(STATUS "  Platform: ${CMAKE_SYSTEM_NAME}")
 message(STATUS "  Features: CLI, AI, Network, Achievements, Replay")
+message(STATUS "  Crypto: OpenSSL")

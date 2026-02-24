@@ -1,7 +1,6 @@
 #include "ai.h"
 #include <stdlib.h>
 #include <limits.h>
-#include <time.h>
 
 static Move findWinningMove(Game* game, Player player);
 static int minimax(Game* game, int depth, Player ai_player, Player human_player, int alpha, int beta);
@@ -121,7 +120,7 @@ void ai_get_move(Game* game, Move* move) {
 }
 
 static Move findWinningMove(Game* game, Player player) {
-    Move move = {MAX_BOARD_SIZE, MAX_BOARD_SIZE};
+    Move move = {MAX_BOARD_SIZE, MAX_BOARD_SIZE, PLAYER_NONE};
     const uint8_t n = game->size;
     
     for (uint8_t i = 0; i < n; i++) {

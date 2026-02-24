@@ -6,6 +6,9 @@
 void replay_init(Replay* replay) {
     if (!replay) return;
     memset(replay, 0, sizeof(Replay));
+    replay->size = MIN_BOARD_SIZE;
+    replay->current_player = PLAYER_X;
+    replay->mode = MODE_LOCAL_2P;
     replay->game_time = time(NULL);
     replay->current_step = -1;
 }
@@ -62,21 +65,30 @@ bool replay_load(Replay* replay, const char* filepath) {
     FILE* f = fopen(filepath, "r");
     if (!f) return false;
     
+    replay_init(replay);
+
     char line[256];
-    replay->move_count = 0;
-    replay->current_step = -1;
     
     while (fgets(line, sizeof(line), f)) {
         if (line[0] == '#' || line[0] == '\n') continue;
         
         if (strncmp(line, "size ", 5) == 0) {
-            sscanf(line + 5, "%d", &replay->size);
+            int size = 0;
+            if (sscanf(line + 5, "%d", &size) == 1 && size >= MIN_BOARD_SIZE && size <= MAX_BOARD_SIZE) {
+                replay->size = (uint8_t)size;
+            }
         } else if (strncmp(line, "mode ", 5) == 0) {
-            sscanf(line + 5, "%d", &replay->mode);
+            int mode = 0;
+            if (sscanf(line + 5, "%d", &mode) == 1 && mode >= MODE_LOCAL_2P && mode <= MODE_NETWORK_CLIENT) {
+                replay->mode = (GameMode)mode;
+            }
         } else {
             int r, c, p;
             if (sscanf(line, "%d %d %d", &r, &c, &p) == 3) {
-                if (replay->move_count < MAX_REPLAY_MOVES) {
+                if (replay->move_count < MAX_REPLAY_MOVES &&
+                    r >= 0 && c >= 0 &&
+                    r < replay->size && c < replay->size &&
+                    (p == PLAYER_X || p == PLAYER_O)) {
                     replay->moves[replay->move_count].row = (uint8_t)r;
                     replay->moves[replay->move_count].col = (uint8_t)c;
                     replay->moves[replay->move_count].player = (Player)p;
@@ -184,48 +196,85 @@ bool replay_history_save(ReplayHistory* history, const char* filepath) {
 bool replay_history_load(ReplayHistory* history, const char* filepath) {
     if (!history || !filepath) return false;
     
+    replay_history_init(history);
+
     FILE* f = fopen(filepath, "r");
     if (!f) {
-        replay_history_init(history);
         return false;
     }
     
     char line[256];
-    int current_replay = -1;
-    Replay* r = NULL;
+    int declared_count = 0;
+    Replay* current = NULL;
     
     while (fgets(line, sizeof(line), f)) {
-        if (line[0] == '#' || line[0] == '\n') continue;
+        if (line[0] == '\n') {
+            continue;
+        }
         
         if (strncmp(line, "count ", 6) == 0) {
-            sscanf(line + 6, "%d", &history->count);
-            current_replay = -1;
-            r = NULL;
-        } else if (strncmp(line, "size ", 5) == 0 && r) {
-            sscanf(line + 5, "%d", &r->size);
-        } else if (strncmp(line, "mode ", 5) == 0 && r) {
-            sscanf(line + 5, "%d", &r->mode);
-        } else if (strncmp(line, "moves ", 6) == 0 && r) {
-            sscanf(line + 6, "%d", &r->move_count);
-        } else if (line[0] == '0' || line[0] == '1' || line[0] == '2') {
+            int parsed = 0;
+            if (sscanf(line + 6, "%d", &parsed) == 1 && parsed >= 0) {
+                declared_count = parsed;
+            }
+            continue;
+        }
+
+        if (strncmp(line, "# Replay ", 9) == 0) {
+            if (history->count >= MAX_REPLAY_MOVES) {
+                current = NULL;
+                continue;
+            }
+            current = &history->replays[history->count];
+            replay_init(current);
+            history->count++;
+            continue;
+        }
+
+        if (line[0] == '#') {
+            continue;
+        }
+
+        if (!current) {
+            continue;
+        }
+
+        if (strncmp(line, "size ", 5) == 0) {
+            int size = 0;
+            if (sscanf(line + 5, "%d", &size) == 1 &&
+                size >= MIN_BOARD_SIZE && size <= MAX_BOARD_SIZE) {
+                current->size = (uint8_t)size;
+            }
+        } else if (strncmp(line, "mode ", 5) == 0) {
+            int mode = 0;
+            if (sscanf(line + 5, "%d", &mode) == 1 &&
+                mode >= MODE_LOCAL_2P && mode <= MODE_NETWORK_CLIENT) {
+                current->mode = (GameMode)mode;
+            }
+        } else if (strncmp(line, "moves ", 6) == 0) {
+            continue;
+        } else {
             int row, col, player;
             if (sscanf(line, "%d %d %d", &row, &col, &player) == 3) {
-                if (r && r->move_count < MAX_REPLAY_MOVES) {
-                    r->moves[r->move_count].row = (uint8_t)row;
-                    r->moves[r->move_count].col = (uint8_t)col;
-                    r->moves[r->move_count].player = (Player)player;
-                    r->move_count++;
+                if (current->size >= MIN_BOARD_SIZE &&
+                    current->size <= MAX_BOARD_SIZE &&
+                    row >= 0 && col >= 0 &&
+                    row < current->size && col < current->size &&
+                    (player == PLAYER_X || player == PLAYER_O) &&
+                    current->move_count < MAX_REPLAY_MOVES) {
+                    current->moves[current->move_count].row = (uint8_t)row;
+                    current->moves[current->move_count].col = (uint8_t)col;
+                    current->moves[current->move_count].player = (Player)player;
+                    current->move_count++;
                 }
-            }
-        } else if (strncmp(line, "Replay ", 7) == 0) {
-            if (current_replay < history->count - 1) {
-                current_replay++;
-                r = &history->replays[current_replay];
-                r->current_step = -1;
             }
         }
     }
     
+    if (declared_count > 0 && declared_count < history->count) {
+        history->count = declared_count;
+    }
+
     fclose(f);
     return true;
 }

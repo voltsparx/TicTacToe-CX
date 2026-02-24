@@ -64,7 +64,7 @@ bool game_make_move(Game* game, uint8_t row, uint8_t col);
 Player game_check_winner(Game* game);
 bool game_is_board_full(Game* game);
 void game_switch_player(Game* game);
-char game_get_cell_char(Game* game, uint8_t row, uint8_t col);
+char game_get_cell_char(const Game* game, uint8_t row, uint8_t col);
 bool game_undo(Game* game);
 bool game_redo(Game* game);
 bool game_can_undo(Game* game);
@@ -74,5 +74,6 @@ void game_start_timer(Game* game, int seconds);
 bool game_update_timer(Game* game);
 int game_get_timer_remaining(Game* game);
 void game_clear_history(Game* game);
+Player game_get_winner(const Game* game);
 
 #endif

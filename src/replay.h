@@ -3,6 +3,7 @@
 
 #include "game.h"
 #include <stdbool.h>
+#include <time.h>
 
 #define MAX_REPLAY_MOVES 100
 

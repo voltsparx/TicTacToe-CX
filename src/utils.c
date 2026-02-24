@@ -3,22 +3,30 @@
 #include <stdlib.h>
 #include <string.h>
 
+static int clamp_int(int value, int min, int max) {
+    if (value < min) return min;
+    if (value > max) return max;
+    return value;
+}
+
 void config_init(Config* cfg) {
     if (!cfg) return;
     cfg->board_size = 3;
     cfg->ai_difficulty = 2;
-    cfg->timer_seconds = 30;
+    cfg->timer_seconds = 0;
     cfg->timer_enabled = false;
     cfg->player_symbol = 'X';
     cfg->color_theme = 0;
+    cfg->sound_enabled = true;
 }
 
 bool config_load(Config* cfg, const char* filepath) {
     if (!cfg || !filepath) return false;
-    
+
+    config_init(cfg);
+
     FILE* f = fopen(filepath, "r");
     if (!f) {
-        config_init(cfg);
         return false;
     }
     
@@ -38,9 +46,20 @@ bool config_load(Config* cfg, const char* filepath) {
                 cfg->player_symbol = value[0];
             } else if (strcmp(key, "color_theme") == 0) {
                 cfg->color_theme = atoi(value);
+            } else if (strcmp(key, "sound_enabled") == 0) {
+                cfg->sound_enabled = (strcmp(value, "true") == 0 || strcmp(value, "1") == 0);
             }
         }
     }
+
+    cfg->board_size = clamp_int(cfg->board_size, MIN_BOARD_SIZE, MAX_BOARD_SIZE);
+    cfg->ai_difficulty = clamp_int(cfg->ai_difficulty, 1, 3);
+    cfg->timer_seconds = (cfg->timer_seconds < 0) ? 0 : cfg->timer_seconds;
+    if (cfg->player_symbol != 'X' && cfg->player_symbol != 'O') {
+        cfg->player_symbol = 'X';
+    }
+    cfg->color_theme = clamp_int(cfg->color_theme, 0, 3);
+    cfg->timer_enabled = cfg->timer_enabled && cfg->timer_seconds > 0;
     
     fclose(f);
     return true;
@@ -58,6 +77,7 @@ bool config_save(Config* cfg, const char* filepath) {
     fprintf(f, "timer_enabled=%s\n", cfg->timer_enabled ? "true" : "false");
     fprintf(f, "player_symbol=%c\n", cfg->player_symbol);
     fprintf(f, "color_theme=%d\n", cfg->color_theme);
+    fprintf(f, "sound_enabled=%s\n", cfg->sound_enabled ? "true" : "false");
     
     fclose(f);
     return true;
@@ -72,10 +92,11 @@ void score_init(Score* score) {
 
 bool score_load(Score* score, const char* filepath) {
     if (!score || !filepath) return false;
-    
+
+    score_init(score);
+
     FILE* f = fopen(filepath, "r");
     if (!f) {
-        score_init(score);
         return false;
     }
     
@@ -116,10 +137,10 @@ void score_update(Score* score, int result) {
     else score->draws++;
 }
 
-char* get_config_path(void) {
+const char* get_config_path(void) {
     return "config/config.ini";
 }
 
-char* get_highscore_path(void) {
+const char* get_highscore_path(void) {
     return "saves/highscores.txt";
 }

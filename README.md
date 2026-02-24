@@ -21,21 +21,21 @@ A Tic Tac Toe game written in C with CLI, AI opponents, and LAN multiplayer.
 
 - **LAN Multiplayer**
   - Host or join games via TCP sockets
+  - Encrypted session with passphrase-based handshake
   - Real-time board synchronization
 
 - **CLI**
   - ANSI color themes (Default, Dark, Light, Retro)
+  - Enhanced bright color palette
   - AI thinking indicators
   - ASCII board rendering
+  - Code-driven sound effects (toggle in settings)
 
 - **Customizable Settings**
   - Board sizes: 3x3, 4x4, 5x5
   - Optional timer per move
   - Configurable color themes
-
-## Screenshots
-
-See the game in action when you run it!
+  - Toggle sound effects
 
 ## Building
 
@@ -63,11 +63,26 @@ cmake ..
 make
 ```
 
+### Platform Install Scripts
+
+Use the scripts in `building-scripts/`:
+
+- Linux: `bash building-scripts/install-linux.sh`
+- macOS: `bash building-scripts/install-macos.sh`
+- Windows: `powershell -ExecutionPolicy Bypass -File .\building-scripts\install-windows.ps1`
+- Termux: `bash building-scripts/install-termux.sh`
+
+Termux users should launch with `bash building-scripts/run-termux.sh`.
+`--gui` is intentionally blocked on Termux.
+
 ### Running
 
 ```bash
 # Run the executable
 ./TicTacToe-CX
+
+# Launch GUI mode (when SDL2 is available)
+./TicTacToe-CX --gui
 ```
 
 ## How to Play
@@ -86,6 +101,7 @@ Settings are stored in `config/config.ini`:
 - AI difficulty
 - Timer settings
 - Color theme
+- Sound enabled/disabled
 
 ## Project Structure
 

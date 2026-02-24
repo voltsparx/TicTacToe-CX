@@ -5,8 +5,11 @@
 #include <stdbool.h>
 
 #ifdef SDL2_AVAILABLE
-#include <SDL2/SDL.h>
-#include <SDL2/SDL_ttf.h>
+    #include <SDL2/SDL.h>
+    #include <SDL2/SDL_ttf.h>
+#else
+    typedef struct SDL_Renderer SDL_Renderer;
+    typedef struct SDL_Texture SDL_Texture;
 #endif
 
 typedef struct {
@@ -24,7 +27,6 @@ void gui_close(GUIState* gui);
 bool gui_run_game(Game* game);
 void gui_draw_board(Game* game, SDL_Renderer* renderer, SDL_Texture* font_texture);
 void gui_handle_click(Game* game, int mouse_x, int mouse_y);
-void gui_draw_menu(GUIState* gui, SDL_Renderer* renderer);
 void gui_draw_game_over(Game* game, SDL_Renderer* renderer);
 
 #endif

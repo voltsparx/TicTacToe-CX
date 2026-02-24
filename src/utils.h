@@ -2,6 +2,7 @@
 #define UTILS_H
 
 #include <stdbool.h>
+#include "game.h"
 
 typedef struct {
     int board_size;
@@ -10,6 +11,7 @@ typedef struct {
     bool timer_enabled;
     char player_symbol;
     int color_theme;
+    bool sound_enabled;
 } Config;
 
 typedef struct {
@@ -27,7 +29,7 @@ bool score_load(Score* score, const char* filepath);
 bool score_save(Score* score, const char* filepath);
 void score_update(Score* score, int result);
 
-char* get_config_path(void);
-char* get_highscore_path(void);
+const char* get_config_path(void);
+const char* get_highscore_path(void);
 
 #endif
