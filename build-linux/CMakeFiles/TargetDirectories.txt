@@ -1,0 +1,3 @@
+/mnt/c/Users/volts/OneDrive/Documents/GitHub/TicTacToe-C/build-linux/CMakeFiles/TicTacToe-CX.dir
+/mnt/c/Users/volts/OneDrive/Documents/GitHub/TicTacToe-C/build-linux/CMakeFiles/edit_cache.dir
+/mnt/c/Users/volts/OneDrive/Documents/GitHub/TicTacToe-C/build-linux/CMakeFiles/rebuild_cache.dir
