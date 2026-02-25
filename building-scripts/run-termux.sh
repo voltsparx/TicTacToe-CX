@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BIN="${PROJECT_ROOT}/build-termux/tictactoe-cx"
+BIN="${PROJECT_ROOT}/build-termux/bin/tictactoe-cx"
 
 for arg in "$@"; do
   if [[ "$arg" == "--gui" || "$arg" == "-g" ]]; then

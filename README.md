@@ -1,7 +1,7 @@
 # TicTacToe-CX
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-1.0-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Version-v3.0-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/C-99-green.svg" alt="C Standard">
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License">
 </p>
@@ -24,12 +24,46 @@ A Tic Tac Toe game written in C with CLI, AI opponents, and LAN multiplayer.
   - Encrypted session with passphrase-based handshake
   - Real-time board synchronization
 
+## Encryption Session (LAN)
+
+LAN security is session-based and negotiated when a client connects:
+
+1. The client attempts a secure session using OpenSSL.
+2. If OpenSSL negotiation fails, it falls back to legacy compatibility mode.
+3. A connection is considered secure only when:
+   `connected && security_ready && mode != NONE`.
+
+> ⚠ Legacy mode is provided for compatibility and does not provide encryption.
+> It should only be used on trusted local networks.
+
+### OpenSSL Mode (Primary)
+
+- Passphrase key material is derived using PBKDF2-HMAC-SHA256 (200,000 iterations).
+- The handshake exchanges a salt and client/server nonces, then derives
+  directional keys (`client → server` and `server → client`).
+- Game packets are protected using AES-256-GCM authenticated encryption.
+- Each frame includes a sequence number; replayed or stale sequence values are rejected.
+
+### Legacy Mode (Compatibility Fallback)
+
+- Uses the older custom key/nonce stream + frame MAC path for compatibility.
+- Still enforces monotonic nonce checks to reject replayed frames.
+- OpenSSL mode is stronger and preferred for production LAN play.
+
 - **CLI**
   - ANSI color themes (Default, Dark, Light, Retro)
   - Enhanced bright color palette
   - AI thinking indicators
-  - ASCII board rendering
+  - Unicode board rendering with ASCII fallback
+  - Live full-screen board redraw (video-like terminal flow)
+  - About page in main menu (author/contact/version)
   - Code-driven sound effects (toggle in settings)
+
+- **GUI (SDL2)**
+  - Main menu flow aligned with CLI (AI, Local, LAN, Scores, Settings, About)
+  - Keyboard + mouse navigation
+  - In-window LAN host/join setup with encrypted handshake
+  - Live board rendering with game-over overlays and rematch flow
 
 - **Customizable Settings**
   - Board sizes: 3x3, 4x4, 5x5
@@ -47,21 +81,16 @@ A Tic Tac Toe game written in C with CLI, AI opponents, and LAN multiplayer.
 ### Build Instructions
 
 ```bash
-# Windows (MinGW)
-mkdir build && cd build
-cmake .. -G "MinGW Makefiles"
-cmake --build .
-
-# Windows (Visual Studio)
-mkdir build && cd build
-cmake .. -G "Visual Studio 16 2019"
-cmake --build .
-
 # Linux/macOS
-mkdir build && cd build
-cmake ..
-make
+cmake -S . -B build-linux
+cmake --build build-linux -j
+
+# Windows (Visual Studio or Ninja)
+cmake -S . -B build-windows
+cmake --build build-windows --config Release
 ```
+
+Executable output is generated under `build-<os>/bin/`.
 
 ### Platform Install Scripts
 
@@ -71,37 +100,73 @@ Use the scripts in `building-scripts/`:
 - macOS: `bash building-scripts/install-macos.sh`
 - Windows: `powershell -ExecutionPolicy Bypass -File .\building-scripts\install-windows.ps1`
 - Termux: `bash building-scripts/install-termux.sh`
+- Linux -> Windows cross-build: `bash building-scripts/build-windows-from-linux.sh`
+
+Each installer asks for:
+
+1. `Install` mode (copy into a bin directory for regular use) or
+2. `Test` mode (build only in `build-<os>/bin/` inside the repo)
 
 Termux users should launch with `bash building-scripts/run-termux.sh`.
 `--gui` is intentionally blocked on Termux.
 
+### Update Scripts
+
+Use the scripts in `update-scripts/` to pull latest code and rebuild:
+
+- Linux: `bash update-scripts/update-linux.sh --install`
+- macOS: `bash update-scripts/update-macos.sh --install`
+- Windows: `powershell -ExecutionPolicy Bypass -File .\update-scripts\update-windows.ps1 -Install`
+- Termux: `bash update-scripts/update-termux.sh`
+
 ### Running
 
 ```bash
-# Run the executable
-./TicTacToe-CX
+# Run (Linux/macOS)
+./build-linux/bin/tictactoe-cx
 
 # Launch GUI mode (when SDL2 is available)
-./TicTacToe-CX --gui
+./build-linux/bin/tictactoe-cx --gui
+
+# Print version and exit
+./build-linux/bin/tictactoe-cx --version
 ```
 
 ## How to Play
 
-1. **Select Game Mode** from the main menu
-2. **Enter moves** using row and column numbers (e.g., `1 1` for top-left)
-3. **Game controls**:
-   - During AI game: Your symbol is X
-   - Enter coordinates as: `row col`
-   - Press Q to quit to menu
+1. Use **Up/Down** arrows and **Enter** to navigate menus
+2. Enter moves as `23` or `2 3` (row, column)
+3. In game, press `Q` to return to menu
+4. Open **About** from main menu for game/author/version details
+
+### GUI Controls
+
+1. Launch with `--gui`
+2. Use **Arrow Keys + Enter** or **Mouse Click**
+3. In game, click cells to move
+4. Press **Esc** to return to main menu
 
 ## Configuration
 
-Settings are stored in `config/config.ini`:
+On first run, the game asks where to create its data directory.
+Default location:
+
+- Linux/macOS/Termux: `~/.tictactoe-cx-config/`
+- Windows: `%USERPROFILE%\.tictactoe-cx-config\`
+
+Inside that directory:
+
+- `config.ini`
+- `saves/highscores.txt`
+
+Settings in `config.ini` include:
 - Board size (3-5)
 - AI difficulty
 - Timer settings
 - Color theme
 - Sound enabled/disabled
+
+The directory and files are auto-created and can be edited manually.
 
 ## Project Structure
 
@@ -113,11 +178,9 @@ TicTacToe-CX/
 │   ├── cli.c/h     # CLI rendering with ANSI colors
 │   ├── ai.c/h      # AI opponents
 │   ├── network.c/h # LAN multiplayer
-│   └── utils.c/h   # Config and scoring
-├── config/
-│   └── config.ini
-├── saves/
-│   └── highscores.txt
+│   └── utils.c/h   # Data/config/score storage helpers
+├── building-scripts/      # Install/test build scripts
+├── update-scripts/        # Pull + rebuild helpers for each platform
 ├── CMakeLists.txt
 └── README.md
 ```

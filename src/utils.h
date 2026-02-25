@@ -29,6 +29,8 @@ bool score_load(Score* score, const char* filepath);
 bool score_save(Score* score, const char* filepath);
 void score_update(Score* score, int result);
 
+bool init_data_paths(bool interactive_prompt);
+const char* get_data_root_path(void);
 const char* get_config_path(void);
 const char* get_highscore_path(void);
 

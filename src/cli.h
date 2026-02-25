@@ -52,22 +52,36 @@ typedef enum {
     THEME_RETRO
 } ColorTheme;
 
+typedef enum {
+    CLI_KEY_NONE = 0,
+    CLI_KEY_UP,
+    CLI_KEY_DOWN,
+    CLI_KEY_LEFT,
+    CLI_KEY_RIGHT,
+    CLI_KEY_ENTER,
+    CLI_KEY_ESCAPE
+} CliKey;
+
 void cli_clear_screen(void);
+void cli_init_terminal(void);
 void cli_print_title(void);
-void cli_print_main_menu(void);
-void cli_print_game_menu(void);
-void cli_print_network_menu(void);
+void cli_print_main_menu(int selected_index);
+void cli_print_game_menu(int selected_index);
+void cli_print_network_menu(int selected_index);
 void cli_print_board(Game* game);
 void cli_print_move_prompt(void);
 void cli_print_game_over(Game* game);
 void cli_print_ai_thinking(void);
 void cli_set_theme(ColorTheme theme);
 void cli_print_highscores(const Score* score);
-void cli_print_settings_menu(const Config* cfg);
+void cli_print_settings_menu(const Config* cfg, int selected_index);
 void cli_print_achievements_menu(void);
 void cli_print_replay_menu(void);
 void cli_print_game_controls(void);
 void cli_print_timer(int seconds);
 void cli_print_undo_redo_status(Game* game);
+void cli_print_about_screen(void);
+CliKey cli_read_menu_key(void);
+void cli_menu_invalidate(void);
 
 #endif

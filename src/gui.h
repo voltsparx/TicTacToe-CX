@@ -2,6 +2,8 @@
 #define GUI_H
 
 #include "game.h"
+#include "utils.h"
+#include "sound.h"
 #include <stdbool.h>
 
 #ifdef SDL2_AVAILABLE
@@ -25,6 +27,7 @@ typedef struct {
 bool gui_init(GUIState* gui);
 void gui_close(GUIState* gui);
 bool gui_run_game(Game* game);
+bool gui_run_app(Config* cfg, Score* score, Sound* sound);
 void gui_draw_board(Game* game, SDL_Renderer* renderer, SDL_Texture* font_texture);
 void gui_handle_click(Game* game, int mouse_x, int mouse_y);
 void gui_draw_game_over(Game* game, SDL_Renderer* renderer);

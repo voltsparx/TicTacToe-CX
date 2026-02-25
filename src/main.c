@@ -17,6 +17,7 @@
 #include "utils.h"
 #include "gui.h"
 #include "sound.h"
+#include "app_meta.h"
 
 static Config global_config;
 static Score global_score;
@@ -29,24 +30,40 @@ static void play_network(Network* net, bool is_host);
 static void run_ai_turn(Game* game);
 static void print_welcome_animation(void);
 static void sleep_seconds(unsigned int seconds);
+static void sleep_milliseconds(unsigned int milliseconds);
 static bool parse_move_input(const char* input, uint8_t board_size, uint8_t* row, uint8_t* col);
 static void apply_config_to_game(Game* game);
 static bool launch_gui_mode(void);
 static void play_game_end_sound(const Game* game);
+static int run_vertical_menu(void (*render_menu)(int), int option_count, int initial_index);
+static void print_cli_usage(const char* program_name);
+static void print_version(void);
 
 int main(int argc, char* argv[]) {
     bool request_gui = false;
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--gui") == 0 || strcmp(argv[i], "-g") == 0) {
             request_gui = true;
-        } else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
-            printf("Usage: %s [--gui|-g]\n", argv[0]);
-            printf("  --gui, -g  Launch GUI mode when available\n");
+        } else if (strcmp(argv[i], "--version") == 0 || strcmp(argv[i], "-v") == 0) {
+            print_version();
             return 0;
+        } else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
+            print_cli_usage(argv[0]);
+            return 0;
+        } else {
+            fprintf(stderr, "Unknown argument: %s\n", argv[i]);
+            print_cli_usage(argv[0]);
+            return 1;
         }
     }
 
+    cli_init_terminal();
     srand((unsigned int)time(NULL));
+
+    if (!init_data_paths(true)) {
+        fprintf(stderr, ANSI_ERROR "\n  Failed to initialize data directory.\n" ANSI_RESET);
+        return 1;
+    }
     
     config_load(&global_config, get_config_path());
     score_load(&global_score, get_highscore_path());
@@ -72,35 +89,36 @@ int main(int argc, char* argv[]) {
     print_welcome_animation();
     
     char input[32];
-    
+    int main_selection = 0;
+
     while (1) {
-        cli_print_main_menu();
-        get_input(input, sizeof(input));
-        
-        char choice = toupper(input[0]);
-        
-        if (choice == 'Q') {
-            sound_play(&global_sound, SOUND_MENU);
+        int choice = run_vertical_menu(cli_print_main_menu, 7, main_selection);
+        if (choice < 0) {
+            choice = 6;
+        }
+        main_selection = choice;
+        sound_play(&global_sound, SOUND_MENU);
+
+        if (choice == 6) {
             printf(ANSI_YELLOW "\n  Thanks for playing TicTacToe-CX!\n");
             printf(ANSI_CYAN "  Made with " ANSI_RED "\u2665 " ANSI_CYAN "by voltsparx\n\n" ANSI_RESET);
             break;
         }
-        
+
         switch (choice) {
-            case '1': {
-                sound_play(&global_sound, SOUND_MENU);
+            case 0: {
+                int ai_selection = 0;
                 while (1) {
-                    cli_print_game_menu();
-                    get_input(input, sizeof(input));
-                    
-                    if (toupper(input[0]) == 'B') break;
-                    
-                    GameMode mode = MODE_AI_EASY;
-                    if (input[0] == '1') mode = MODE_AI_EASY;
-                    else if (input[0] == '2') mode = MODE_AI_MEDIUM;
-                    else if (input[0] == '3') mode = MODE_AI_HARD;
-                    else continue;
-                    
+                    int ai_choice = run_vertical_menu(cli_print_game_menu, 4, ai_selection);
+                    if (ai_choice < 0 || ai_choice == 3) {
+                        break;
+                    }
+
+                    ai_selection = ai_choice;
+                    GameMode mode = (ai_choice == 0) ? MODE_AI_EASY
+                                  : (ai_choice == 1) ? MODE_AI_MEDIUM
+                                                     : MODE_AI_HARD;
+
                     Game game;
                     game_init(&game, (uint8_t)global_config.board_size, mode);
                     apply_config_to_game(&game);
@@ -108,115 +126,127 @@ int main(int argc, char* argv[]) {
                 }
                 break;
             }
-            
-            case '2': {
-                sound_play(&global_sound, SOUND_MENU);
+
+            case 1: {
                 Game game;
                 game_init(&game, (uint8_t)global_config.board_size, MODE_LOCAL_2P);
                 apply_config_to_game(&game);
                 play_local_2p(&game);
                 break;
             }
-            
-            case '3': {
-                sound_play(&global_sound, SOUND_MENU);
+
+            case 2: {
+                int network_selection = 0;
                 while (1) {
-                    cli_print_network_menu();
-                    get_input(input, sizeof(input));
-                    
-                    if (toupper(input[0]) == 'B') break;
-                    
-                    bool is_host = (input[0] == '1');
-                    
-                    if (input[0] == '1' || input[0] == '2') {
-                        Network net;
-                        if (!network_init(&net)) {
-                            printf(ANSI_ERROR "\n  Network subsystem failed to initialize.\n" ANSI_RESET);
-                            sound_play(&global_sound, SOUND_INVALID);
-                            sleep_seconds(2);
-                            continue;
-                        }
-                        play_network(&net, is_host);
+                    int net_choice = run_vertical_menu(cli_print_network_menu, 3, network_selection);
+                    if (net_choice < 0 || net_choice == 2) {
+                        break;
                     }
+
+                    network_selection = net_choice;
+                    Network net;
+                    if (!network_init(&net)) {
+                        printf(ANSI_ERROR "\n  Network subsystem failed to initialize.\n" ANSI_RESET);
+                        sound_play(&global_sound, SOUND_INVALID);
+                        sleep_seconds(2);
+                        continue;
+                    }
+
+                    play_network(&net, net_choice == 0);
                 }
                 break;
             }
-            
-            case '4': {
-                sound_play(&global_sound, SOUND_MENU);
+
+            case 3: {
                 cli_print_highscores(&global_score);
                 get_input(input, sizeof(input));
                 break;
             }
-            
-            case '5': {
-                sound_play(&global_sound, SOUND_MENU);
-                while (1) {
-                    cli_print_settings_menu(&global_config);
-                    get_input(input, sizeof(input));
-                    
-                    if (toupper(input[0]) == 'B') break;
-                    
-                    if (input[0] == '1') {
-                        printf(ANSI_CYAN "\n  Enter board size (3-5): " ANSI_RESET);
-                        get_input(input, sizeof(input));
-                        int size = atoi(input);
-                        if (size >= 3 && size <= 5) {
-                            global_config.board_size = size;
+
+            case 4: {
+                static const int timer_cycle[] = {0, 10, 15, 30, 45, 60};
+                const int timer_cycle_count = (int)(sizeof(timer_cycle) / sizeof(timer_cycle[0]));
+                int settings_selection = 0;
+                bool settings_done = false;
+
+                while (!settings_done) {
+                    cli_print_settings_menu(&global_config, settings_selection);
+                    CliKey key = cli_read_menu_key();
+
+                    if (key == CLI_KEY_UP) {
+                        settings_selection = (settings_selection + 5) % 6;
+                    } else if (key == CLI_KEY_DOWN) {
+                        settings_selection = (settings_selection + 1) % 6;
+                    } else if (key == CLI_KEY_ESCAPE || (key == CLI_KEY_ENTER && settings_selection == 5)) {
+                        settings_done = true;
+                    } else if (key == CLI_KEY_ENTER) {
+                        if (settings_selection == 0) {
+                            int current_size = global_config.board_size;
+                            if (current_size < MIN_BOARD_SIZE || current_size > MAX_BOARD_SIZE) {
+                                current_size = MIN_BOARD_SIZE;
+                            }
+
+                            int next_size = current_size + 1;
+                            if (next_size > MAX_BOARD_SIZE) next_size = MIN_BOARD_SIZE;
+                            global_config.board_size = next_size;
                             config_save(&global_config, get_config_path());
-                            printf(ANSI_GREEN "  Board size set to %dx%d\n" ANSI_RESET, size, size);
                             sound_play(&global_sound, SOUND_MENU);
-                        }
-                    } else if (input[0] == '2') {
-                        printf(ANSI_CYAN "\n  Select theme (0=Default, 1=Dark, 2=Light, 3=Retro): " ANSI_RESET);
-                        get_input(input, sizeof(input));
-                        int theme = atoi(input);
-                        if (theme >= 0 && theme <= 3) {
-                            global_config.color_theme = theme;
-                            cli_set_theme((ColorTheme)theme);
+                        } else if (settings_selection == 1) {
+                            int current_theme = global_config.color_theme;
+                            if (current_theme < THEME_DEFAULT || current_theme > THEME_RETRO) {
+                                current_theme = THEME_DEFAULT;
+                            }
+
+                            int next_theme = current_theme + 1;
+                            if (next_theme > THEME_RETRO) next_theme = THEME_DEFAULT;
+                            global_config.color_theme = next_theme;
+                            cli_set_theme((ColorTheme)next_theme);
                             config_save(&global_config, get_config_path());
-                            printf(ANSI_GREEN "  Theme updated!\n" ANSI_RESET);
                             sound_play(&global_sound, SOUND_MENU);
-                        }
-                    } else if (input[0] == '3') {
-                        printf(ANSI_CYAN "\n  Timer in seconds (0=off): " ANSI_RESET);
-                        get_input(input, sizeof(input));
-                        int timer = atoi(input);
-                        if (timer < 0) {
-                            timer = 0;
-                        }
-                        global_config.timer_seconds = timer;
-                        global_config.timer_enabled = (timer > 0);
-                        config_save(&global_config, get_config_path());
-                        printf(ANSI_GREEN "  Timer set to %d seconds\n" ANSI_RESET, timer);
-                        sound_play(&global_sound, SOUND_MENU);
-                    } else if (input[0] == '4') {
-                        printf(ANSI_CYAN "\n  Select player symbol (X/O): " ANSI_RESET);
-                        get_input(input, sizeof(input));
-                        char symbol = (char)toupper((unsigned char)input[0]);
-                        if (symbol == 'X' || symbol == 'O') {
-                            global_config.player_symbol = symbol;
+                        } else if (settings_selection == 2) {
+                            int current = 0;
+                            if (global_config.timer_enabled && global_config.timer_seconds > 0) {
+                                current = global_config.timer_seconds;
+                            }
+
+                            int idx = 0;
+                            for (int i = 0; i < timer_cycle_count; i++) {
+                                if (timer_cycle[i] == current) {
+                                    idx = i;
+                                    break;
+                                }
+                            }
+                            idx = (idx + 1) % timer_cycle_count;
+
+                            global_config.timer_seconds = timer_cycle[idx];
+                            global_config.timer_enabled = (timer_cycle[idx] > 0);
                             config_save(&global_config, get_config_path());
-                            printf(ANSI_GREEN "  Player symbol set to %c\n" ANSI_RESET, symbol);
                             sound_play(&global_sound, SOUND_MENU);
-                        } else {
-                            printf(ANSI_ERROR "  Invalid symbol! Use X or O.\n" ANSI_RESET);
-                            sound_play(&global_sound, SOUND_INVALID);
-                        }
-                    } else if (input[0] == '5') {
-                        global_config.sound_enabled = !global_config.sound_enabled;
-                        sound_set_enabled(&global_sound, global_config.sound_enabled);
-                        config_save(&global_config, get_config_path());
-                        printf(ANSI_GREEN "  Sound %s\n" ANSI_RESET, global_config.sound_enabled ? "enabled" : "disabled");
-                        if (global_config.sound_enabled) {
+                        } else if (settings_selection == 3) {
+                            global_config.player_symbol = (global_config.player_symbol == 'O') ? 'X' : 'O';
+                            config_save(&global_config, get_config_path());
                             sound_play(&global_sound, SOUND_MENU);
+                        } else if (settings_selection == 4) {
+                            global_config.sound_enabled = !global_config.sound_enabled;
+                            sound_set_enabled(&global_sound, global_config.sound_enabled);
+                            config_save(&global_config, get_config_path());
+                            if (global_config.sound_enabled) {
+                                sound_play(&global_sound, SOUND_MENU);
+                            }
                         }
                     }
                 }
+                cli_menu_invalidate();
                 break;
             }
+
+            case 5: {
+                cli_print_about_screen();
+                get_input(input, sizeof(input));
+                break;
+            }
+
             default:
-                sound_play(&global_sound, SOUND_INVALID);
                 break;
         }
     }
@@ -238,27 +268,46 @@ static void get_input(char* buffer, size_t size) {
     }
 }
 
+static int run_vertical_menu(void (*render_menu)(int), int option_count, int initial_index) {
+    if (!render_menu || option_count <= 0) {
+        return -1;
+    }
+
+    int selected = initial_index;
+    if (selected < 0 || selected >= option_count) {
+        selected = 0;
+    }
+
+    while (1) {
+        render_menu(selected);
+        CliKey key = cli_read_menu_key();
+
+        if (key == CLI_KEY_UP) {
+            selected = (selected + option_count - 1) % option_count;
+        } else if (key == CLI_KEY_DOWN) {
+            selected = (selected + 1) % option_count;
+        } else if (key == CLI_KEY_ENTER) {
+            cli_menu_invalidate();
+            return selected;
+        } else if (key == CLI_KEY_ESCAPE) {
+            cli_menu_invalidate();
+            return -1;
+        }
+    }
+}
+
 static void print_welcome_animation(void) {
     cli_print_title();
-    
-    printf(ANSI_YELLOW "\n  Loading");
+
+    printf(ANSI_YELLOW "  Loading");
     fflush(stdout);
     for (int i = 0; i < 3; i++) {
-        sleep_seconds(1);
+        sleep_milliseconds(220);
         printf(".");
         fflush(stdout);
     }
-    printf("\n\n" ANSI_RESET);
-    
-    printf(ANSI_CYAN "  Welcome to " ANSI_YELLOW "TicTacToe-CX" ANSI_CYAN "!\n\n");
-    printf(ANSI_WHITE "  Features:\n");
-    printf(ANSI_GREEN "   * " ANSI_RESET "Single Player vs AI (Easy/Medium/Hard)\n");
-    printf(ANSI_GREEN "   * " ANSI_RESET "Two Player Local Mode\n");
-    printf(ANSI_GREEN "   * " ANSI_RESET "LAN Multiplayer\n");
-    printf(ANSI_GREEN "   * " ANSI_RESET "Beautiful ANSI Color Themes\n");
-    printf(ANSI_GREEN "   * " ANSI_RESET "Multiple Board Sizes\n\n");
-    
-    sleep_seconds(2);
+    printf("\n" ANSI_RESET);
+    sleep_milliseconds(120);
 }
 
 static void play_local_2p(Game* game) {
@@ -278,7 +327,7 @@ static void play_local_2p(Game* game) {
 
         uint8_t row, col;
         if (!parse_move_input(input, game->size, &row, &col)) {
-            printf(ANSI_ERROR "  Invalid input! Use format: row col\n" ANSI_RESET);
+            printf(ANSI_ERROR "  Invalid input! Use 23 or 2 3.\n" ANSI_RESET);
             sound_play(&global_sound, SOUND_INVALID);
             sleep_seconds(1);
             continue;
@@ -336,7 +385,7 @@ static void play_ai(Game* game, GameMode mode) {
 
             uint8_t row, col;
             if (!parse_move_input(input, game->size, &row, &col)) {
-                printf(ANSI_ERROR "  Invalid input! Use format: row col\n" ANSI_RESET);
+                printf(ANSI_ERROR "  Invalid input! Use 23 or 2 3.\n" ANSI_RESET);
                 sound_play(&global_sound, SOUND_INVALID);
                 sleep_seconds(1);
                 continue;
@@ -372,17 +421,8 @@ static void play_ai(Game* game, GameMode mode) {
 }
 
 static void run_ai_turn(Game* game) {
-    printf(ANSI_YELLOW "  AI is thinking" ANSI_RESET);
-    fflush(stdout);
-    
-    for (int i = 0; i < 3; i++) {
-        sleep_seconds(1);
-        printf(".");
-        fflush(stdout);
-    }
-    
-    printf("\n");
-    
+    cli_print_ai_thinking();
+
     Move ai_move;
     ai_get_move(game, &ai_move);
     
@@ -444,8 +484,12 @@ static void play_network(Network* net, bool is_host) {
         printf(ANSI_CYAN "\n  Enter host IP (default 127.0.0.1): " ANSI_RESET);
         get_input(input, sizeof(input));
         if (strlen(input) > 0) {
-            strncpy(ip, input, 15);
-            ip[15] = '\0';
+            size_t i = 0;
+            while (input[i] != '\0' && i + 1 < sizeof(ip)) {
+                ip[i] = input[i];
+                i++;
+            }
+            ip[i] = '\0';
         }
         
         printf(ANSI_CYAN "  Enter port (default %d): " ANSI_RESET, port);
@@ -552,12 +596,14 @@ static bool launch_gui_mode(void) {
         return false;
     }
 
-    Game game;
-    game_init(&game, (uint8_t)global_config.board_size, MODE_LOCAL_2P);
-    apply_config_to_game(&game);
-
     printf(ANSI_BRIGHT_GREEN "\n  Launching GUI mode...\n" ANSI_RESET);
-    (void)gui_run_game(&game);
+    if (!gui_run_app(&global_config, &global_score, &global_sound)) {
+        gui_close(&gui);
+        return false;
+    }
+
+    score_save(&global_score, get_highscore_path());
+    config_save(&global_config, get_config_path());
     gui_close(&gui);
     return true;
 #endif
@@ -596,6 +642,27 @@ static void sleep_seconds(unsigned int seconds) {
 #endif
 }
 
+static void sleep_milliseconds(unsigned int milliseconds) {
+#ifdef _WIN32
+    Sleep(milliseconds);
+#else
+    usleep(milliseconds * 1000U);
+#endif
+}
+
+static void print_cli_usage(const char* program_name) {
+    const char* app = (program_name && program_name[0] != '\0') ? program_name : "tictactoe-cx";
+    printf("%s v%s\n", APP_NAME, APP_VERSION);
+    printf("Usage: %s [--gui|-g] [--version|-v] [--help|-h]\n", app);
+    printf("  --gui, -g      Launch GUI mode when available\n");
+    printf("  --version, -v  Print version and exit\n");
+    printf("  --help, -h     Show this help message\n");
+}
+
+static void print_version(void) {
+    printf("%s v%s\n", APP_NAME, APP_VERSION);
+}
+
 static bool parse_move_input(const char* input, uint8_t board_size, uint8_t* row, uint8_t* col) {
     if (!input || !row || !col) {
         return false;
@@ -603,9 +670,47 @@ static bool parse_move_input(const char* input, uint8_t board_size, uint8_t* row
 
     int user_row = 0;
     int user_col = 0;
-    if (sscanf(input, "%d %d", &user_row, &user_col) != 2) {
+    int consumed = 0;
+
+    if (sscanf(input, " %d %d %n", &user_row, &user_col, &consumed) == 2) {
+        while (input[consumed] != '\0' && isspace((unsigned char)input[consumed])) {
+            consumed++;
+        }
+        if (input[consumed] == '\0') {
+            if (user_row < 1 || user_col < 1 || user_row > board_size || user_col > board_size) {
+                return false;
+            }
+
+            *row = (uint8_t)(user_row - 1);
+            *col = (uint8_t)(user_col - 1);
+            return true;
+        }
+    }
+
+    char compact[16];
+    size_t compact_len = 0;
+    for (size_t i = 0; input[i] != '\0'; i++) {
+        if (isspace((unsigned char)input[i])) {
+            continue;
+        }
+
+        if (!isdigit((unsigned char)input[i])) {
+            return false;
+        }
+
+        if (compact_len + 1 >= sizeof(compact)) {
+            return false;
+        }
+        compact[compact_len++] = input[i];
+    }
+    compact[compact_len] = '\0';
+
+    if (compact_len != 2) {
         return false;
     }
+
+    user_row = compact[0] - '0';
+    user_col = compact[1] - '0';
 
     if (user_row < 1 || user_col < 1 || user_row > board_size || user_col > board_size) {
         return false;

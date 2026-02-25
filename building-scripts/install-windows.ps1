@@ -1,60 +1,104 @@
 param(
-    [switch]$NoGui
+    [ValidateSet("install", "test")]
+    [string]$Mode = "",
+    [switch]$NoGui,
+    [switch]$Help
 )
 
 $ErrorActionPreference = "Stop"
-$projectRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-$buildDir = Join-Path $projectRoot "build-windows"
-$enableSdl = if ($NoGui) { "OFF" } else { "ON" }
 
-Write-Host "==> TicTacToe-CX Windows installer" -ForegroundColor Cyan
+function Write-Info([string]$Message) {
+    Write-Host "==> $Message" -ForegroundColor Cyan
+}
+
+function Write-Warn([string]$Message) {
+    Write-Host "Warning: $Message" -ForegroundColor Yellow
+}
+
+function Fail([string]$Message) {
+    Write-Host "Error: $Message" -ForegroundColor Red
+    exit 1
+}
+
+function Show-Usage {
+    @"
+Usage:
+  powershell -ExecutionPolicy Bypass -File .\building-scripts\install-windows.ps1 [options]
+
+Options:
+  -Mode <install|test>    Install mode or test mode
+  -NoGui                  Build with -DENABLE_SDL2=OFF
+  -Help                   Show this help
+"@ | Write-Host
+}
+
+if ($Help) {
+    Show-Usage
+    exit 0
+}
 
 if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
-    Write-Host "CMake was not found in PATH." -ForegroundColor Yellow
-    Write-Host "Install CMake first (winget install Kitware.CMake) and rerun." -ForegroundColor Yellow
-    exit 1
+    Fail "CMake not found in PATH."
 }
 
-$opensslRoot = $env:OPENSSL_ROOT_DIR
-if (-not $opensslRoot) {
-    $candidates = @(
-        "C:\Program Files\OpenSSL-Win64",
-        "C:\Program Files\OpenSSL-Win32"
-    )
-    foreach ($candidate in $candidates) {
-        if (Test-Path $candidate) {
-            $opensslRoot = $candidate
-            break
-        }
+$projectRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+$buildDir = Join-Path $projectRoot "build-windows"
+$binary = Join-Path $buildDir "bin\tictactoe-cx.exe"
+$enableSdl = if ($NoGui) { "OFF" } else { "ON" }
+
+if ([string]::IsNullOrWhiteSpace($Mode)) {
+    Write-Host "Select mode:"
+    Write-Host "  1) Install (for normal use)"
+    Write-Host "  2) Test (build in repo only)"
+    $choice = Read-Host "> "
+    switch ($choice) {
+        "1" { $Mode = "install" }
+        "2" { $Mode = "test" }
+        default { Fail "Invalid selection." }
     }
 }
 
-if (-not $opensslRoot) {
-    Write-Host "OpenSSL was not found. Attempting install via winget..." -ForegroundColor Cyan
-    if (Get-Command winget -ErrorAction SilentlyContinue) {
-        winget install -e --id ShiningLight.OpenSSL.Light --accept-source-agreements --accept-package-agreements
-        $candidates = @(
-            "C:\Program Files\OpenSSL-Win64",
-            "C:\Program Files\OpenSSL-Win32"
-        )
-        foreach ($candidate in $candidates) {
-            if (Test-Path $candidate) {
-                $opensslRoot = $candidate
-                break
-            }
-        }
-    }
-}
+Write-Info "Configuring build (ENABLE_SDL2=$enableSdl)"
+cmake -S $projectRoot -B $buildDir -DENABLE_SDL2=$enableSdl
 
-if (-not $opensslRoot) {
-    Write-Host "OpenSSL not found. Install OpenSSL and rerun. You can set OPENSSL_ROOT_DIR." -ForegroundColor Yellow
-    exit 1
-}
-
-Write-Host "==> Configuring build (ENABLE_SDL2=$enableSdl)" -ForegroundColor Cyan
-cmake -S $projectRoot -B $buildDir -DENABLE_SDL2=$enableSdl -DOPENSSL_ROOT_DIR="$opensslRoot"
-
-Write-Host "==> Building" -ForegroundColor Cyan
+Write-Info "Building"
 cmake --build $buildDir --config Release
 
-Write-Host "Done. Run: $buildDir\\Release\\tictactoe-cx.exe" -ForegroundColor Green
+if (-not (Test-Path $binary)) {
+    Fail "Binary not found: $binary"
+}
+
+if ($Mode -eq "test") {
+    Write-Host "Test build ready at: $binary" -ForegroundColor Green
+    exit 0
+}
+
+Write-Host "Install destination:" -ForegroundColor Cyan
+Write-Host "  1) Main user bin folder ($env:USERPROFILE\bin)"
+Write-Host "  2) Custom folder (will be added to user PATH)"
+$installChoice = Read-Host "> "
+
+switch ($installChoice) {
+    "1" { $targetDir = Join-Path $env:USERPROFILE "bin" }
+    "2" {
+        $custom = Read-Host "Custom directory path"
+        if ([string]::IsNullOrWhiteSpace($custom)) {
+            Fail "Custom directory cannot be empty."
+        }
+        $targetDir = $custom
+    }
+    default { Fail "Invalid selection." }
+}
+
+New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
+Copy-Item -Path $binary -Destination (Join-Path $targetDir "tictactoe-cx.exe") -Force
+Write-Host "Installed: $(Join-Path $targetDir 'tictactoe-cx.exe')" -ForegroundColor Green
+
+$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if (-not $userPath) { $userPath = "" }
+$pathEntries = $userPath -split ';' | Where-Object { $_ -ne "" }
+if (-not ($pathEntries -contains $targetDir)) {
+    $newPath = if ($userPath) { "$userPath;$targetDir" } else { $targetDir }
+    [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
+    Write-Warn "Added $targetDir to User PATH. Open a new terminal to use it."
+}

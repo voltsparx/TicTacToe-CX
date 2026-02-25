@@ -58,6 +58,22 @@ typedef struct {
     NetworkPacket packet;
 } LegacySecureFrame;
 
+static void copy_cstr_trunc(char* dst, size_t dst_size, const char* src) {
+    size_t i = 0;
+    if (!dst || dst_size == 0) {
+        return;
+    }
+    if (!src) {
+        dst[0] = '\0';
+        return;
+    }
+
+    for (; i + 1 < dst_size && src[i] != '\0'; i++) {
+        dst[i] = src[i];
+    }
+    dst[i] = '\0';
+}
+
 static void close_socket_if_open(int* sockfd) {
     if (!sockfd || *sockfd == INVALID_SOCKET) return;
     CLOSE_SOCKET(*sockfd);
@@ -765,8 +781,7 @@ void network_set_passphrase(Network* net, const char* passphrase) {
     }
 
     const char* source = (passphrase && passphrase[0] != '\0') ? passphrase : NETWORK_DEFAULT_PASSPHRASE;
-    strncpy(net->passphrase, source, NETWORK_PASSPHRASE_MAX - 1);
-    net->passphrase[NETWORK_PASSPHRASE_MAX - 1] = '\0';
+    copy_cstr_trunc(net->passphrase, sizeof(net->passphrase), source);
     net->legacy_key_seed = derive_legacy_key_seed(net->passphrase);
     reset_security_state(net);
 }
@@ -840,11 +855,12 @@ bool network_accept(Network* net, int timeout_ms) {
     net->sockfd = client_sock;
     net->connected = true;
     reset_security_state(net);
+    /* Single-client session: no further accepts needed after connection. */
+    close_socket_if_open(&net->listen_sockfd);
 
     const char* addr_ptr = inet_ntoa(client_addr.sin_addr);
     if (addr_ptr) {
-        strncpy(net->host_ip, addr_ptr, sizeof(net->host_ip) - 1);
-        net->host_ip[sizeof(net->host_ip) - 1] = '\0';
+        copy_cstr_trunc(net->host_ip, sizeof(net->host_ip), addr_ptr);
     } else {
         net->host_ip[0] = '\0';
     }
@@ -881,8 +897,7 @@ bool network_connect(Network* net, const char* ip, int port) {
         return false;
     }
 
-    strncpy(net->host_ip, ip, sizeof(net->host_ip) - 1);
-    net->host_ip[sizeof(net->host_ip) - 1] = '\0';
+    copy_cstr_trunc(net->host_ip, sizeof(net->host_ip), ip);
     net->role = NET_CLIENT;
     net->connected = true;
     net->port = port;
@@ -908,8 +923,7 @@ bool network_secure_handshake(Network* net, int timeout_ms) {
         if (!ok) {
             char ip_copy[sizeof(net->host_ip)];
             int port = net->port;
-            strncpy(ip_copy, net->host_ip, sizeof(ip_copy) - 1);
-            ip_copy[sizeof(ip_copy) - 1] = '\0';
+            copy_cstr_trunc(ip_copy, sizeof(ip_copy), net->host_ip);
 
             close_socket_if_open(&net->sockfd);
             net->connected = false;
@@ -992,7 +1006,7 @@ bool network_send_chat(Network* net, const char* msg) {
     NetworkPacket pkt;
     memset(&pkt, 0, sizeof(pkt));
     pkt.type = PACKET_CHAT;
-    strncpy(pkt.message, msg, BUFFER_SIZE - 1);
+    copy_cstr_trunc(pkt.message, sizeof(pkt.message), msg);
 
     return send_packet(net, &pkt);
 }
@@ -1002,8 +1016,7 @@ bool network_receive_chat(Network* net, char* msg, int timeout_ms) {
 
     NetworkPacket pkt;
     if (receive_packet(net, &pkt, timeout_ms) && pkt.type == PACKET_CHAT) {
-        strncpy(msg, pkt.message, BUFFER_SIZE - 1);
-        msg[BUFFER_SIZE - 1] = '\0';
+        copy_cstr_trunc(msg, BUFFER_SIZE, pkt.message);
         return true;
     }
 
