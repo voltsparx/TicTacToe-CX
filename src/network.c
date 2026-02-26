@@ -150,6 +150,49 @@ static int wait_socket_readable(int sockfd, int timeout_ms) {
     return select((int)(sockfd + 1), &readfds, NULL, NULL, timeout_ptr);
 }
 
+static void sleep_ms(int milliseconds) {
+    if (milliseconds <= 0) {
+        return;
+    }
+
+    struct timeval delay;
+    delay.tv_sec = milliseconds / 1000;
+    delay.tv_usec = (milliseconds % 1000) * 1000;
+    (void)select(0, NULL, NULL, NULL, &delay);
+}
+
+static int peek_with_min_bytes(int sockfd,
+                               uint8_t* out,
+                               size_t out_len,
+                               size_t min_bytes,
+                               int timeout_ms) {
+    if (!out || min_bytes == 0 || out_len < min_bytes || out_len > (size_t)INT_MAX) {
+        return -1;
+    }
+
+    const int poll_interval_ms = 10;
+    int elapsed_ms = 0;
+
+    while (timeout_ms < 0 || elapsed_ms <= timeout_ms) {
+        int got = recv(sockfd, (char*)out, (int)out_len, MSG_PEEK);
+        if (got >= (int)min_bytes) {
+            return got;
+        }
+        if (got <= 0) {
+            return -1;
+        }
+
+        if (timeout_ms >= 0 && elapsed_ms >= timeout_ms) {
+            break;
+        }
+
+        sleep_ms(poll_interval_ms);
+        elapsed_ms += poll_interval_ms;
+    }
+
+    return -1;
+}
+
 static bool send_all(int sockfd, const char* data, size_t len) {
     size_t sent_total = 0;
     while (sent_total < len) {
@@ -733,8 +776,9 @@ static NetworkSecurityMode detect_client_handshake_mode(Network* net, int timeou
         return NET_SECURITY_NONE;
     }
 
+    const int probe_timeout_ms = (timeout_ms >= 0 && timeout_ms < 1000) ? timeout_ms : 1000;
     uint8_t probe[8];
-    int got = recv(net->sockfd, (char*)probe, (int)sizeof(probe), MSG_PEEK);
+    int got = peek_with_min_bytes(net->sockfd, probe, sizeof(probe), 6, probe_timeout_ms);
     if (got < 6) {
         return NET_SECURITY_NONE;
     }

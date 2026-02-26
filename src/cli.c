@@ -58,6 +58,7 @@ static const CliGlyphs GLYPHS_ASCII = {
 };
 
 static const CliGlyphs* g_glyphs = &GLYPHS_UNICODE;
+static bool g_use_live_render = true;
 
 #define CLI_MENU_MAX_OPTIONS 12
 #define CLI_MENU_MAX_TEXT 128
@@ -137,22 +138,62 @@ static bool locale_supports_utf8(void) {
            strstr(lowered, "utf8") != NULL;
 }
 
+static bool env_flag_enabled(const char* name) {
+    const char* value = getenv(name);
+    if (!value) {
+        return false;
+    }
+
+    return strcmp(value, "1") == 0 ||
+           strcmp(value, "true") == 0 ||
+           strcmp(value, "TRUE") == 0 ||
+           strcmp(value, "yes") == 0 ||
+           strcmp(value, "YES") == 0;
+}
+
+#ifndef _WIN32
+static bool terminal_supports_live_render(void) {
+    const char* term = getenv("TERM");
+    if (!isatty(STDIN_FILENO) || !isatty(STDOUT_FILENO)) {
+        return false;
+    }
+    if (!term || term[0] == '\0') {
+        return false;
+    }
+    if (strcmp(term, "dumb") == 0) {
+        return false;
+    }
+    return true;
+}
+#endif
+
 void cli_init_terminal(void) {
     (void)setlocale(LC_ALL, "");
+    g_use_live_render = true;
 
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
     SetConsoleCP(CP_UTF8);
 
     HANDLE out = GetStdHandle(STD_OUTPUT_HANDLE);
+    bool vt_ok = false;
     if (out != INVALID_HANDLE_VALUE) {
         DWORD mode = 0;
         if (GetConsoleMode(out, &mode)) {
             mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-            (void)SetConsoleMode(out, mode);
+            vt_ok = SetConsoleMode(out, mode) != 0;
         }
     }
+    if (!vt_ok) {
+        g_use_live_render = false;
+    }
+#else
+    g_use_live_render = terminal_supports_live_render();
 #endif
+
+    if (env_flag_enabled("TICTACTOE_NO_LIVE")) {
+        g_use_live_render = false;
+    }
 
     const char* force_ascii = getenv("TICTACTOE_ASCII");
     if (force_ascii && (strcmp(force_ascii, "1") == 0 || strcmp(force_ascii, "true") == 0)) {
@@ -161,6 +202,9 @@ void cli_init_terminal(void) {
     }
 
     g_glyphs = locale_supports_utf8() ? &GLYPHS_UNICODE : &GLYPHS_ASCII;
+    if (!g_use_live_render) {
+        g_glyphs = &GLYPHS_ASCII;
+    }
 }
 
 static void print_board_border(uint8_t n, uint8_t cell_width, int left_padding,
@@ -264,7 +308,7 @@ static void print_menu_option(const char* title, const char* subtitle, bool sele
             printf(ANSI_BRIGHT_CYAN "    %s" ANSI_RESET "\n", subtitle);
         }
     } else {
-        printf(ANSI_WHITE "  %s" ANSI_RESET "\n", title ? title : "");
+        printf(ANSI_WHITE "  %-35s  " ANSI_RESET "\n", title ? title : "");
         if (subtitle && subtitle[0] != '\0') {
             printf(ANSI_GRAY "    %s" ANSI_RESET "\n", subtitle);
         }
@@ -297,11 +341,15 @@ static void copy_text_limited(char* dst, size_t dst_size, const char* src) {
 }
 
 static void render_option_at_row(int row, const char* title, const char* subtitle, bool selected) {
+    if (!g_use_live_render) {
+        return;
+    }
+
     printf("\033[%d;1H\033[2K", row);
     if (selected) {
         printf(ANSI_BG_CYAN ANSI_BLACK ANSI_BOLD "  %-35s  " ANSI_RESET, title ? title : "");
     } else {
-        printf(ANSI_WHITE "  %s" ANSI_RESET, title ? title : "");
+        printf(ANSI_WHITE "  %-35s  " ANSI_RESET, title ? title : "");
     }
 
     printf("\033[%d;1H\033[2K", row + 1);
@@ -349,7 +397,7 @@ static void render_live_menu(const char* menu_id,
                            strcmp(g_live_menu.menu_id, menu_id) == 0 &&
                            g_live_menu.option_count == option_count;
 
-    if (!same_menu) {
+    if (!g_use_live_render || !same_menu) {
         cli_clear_screen();
         print_theme_colors();
         print_menu_header(title);
@@ -359,7 +407,9 @@ static void render_live_menu(const char* menu_id,
         }
 
         print_menu_footer();
-        printf("\033[?25l");
+        if (g_use_live_render) {
+            printf("\033[?25l");
+        }
         fflush(stdout);
 
         copy_text_limited(g_live_menu.menu_id, sizeof(g_live_menu.menu_id), menu_id);
@@ -411,7 +461,9 @@ void cli_menu_invalidate(void) {
     g_live_menu.menu_id[0] = '\0';
     g_live_menu.option_count = 0;
     g_live_menu.selected_index = 0;
-    printf("\033[?25h");
+    if (g_use_live_render) {
+        printf("\033[?25h");
+    }
     fflush(stdout);
 }
 
@@ -541,6 +593,7 @@ void cli_print_main_menu(int selected_index) {
         "Play vs AI",
         "Two Player Local",
         "LAN Multiplayer",
+        "Internet Multiplayer",
         "High Scores",
         "Settings",
         "About",
@@ -550,6 +603,7 @@ void cli_print_main_menu(int selected_index) {
         "Easy, Medium, Hard",
         "Play on one keyboard",
         "Host or join over LAN",
+        "Cloudflared tunneled sessions",
         "See your match stats",
         "Board, colors, timer, sound",
         "Game info and credits",
@@ -604,6 +658,26 @@ void cli_print_network_menu(int selected_index) {
     }
 
     render_live_menu("network", "LAN MULTIPLAYER", options, subtitles, option_count, selected_index);
+}
+
+void cli_print_internet_menu(int selected_index) {
+    static const char* options[] = {
+        "Host Internet Game",
+        "Join Internet Game",
+        "Back"
+    };
+    static const char* subtitles[] = {
+        "Expose your local port using cloudflared",
+        "Use a cloudflared hostname/link",
+        "Return to main menu"
+    };
+    const int option_count = (int)(sizeof(options) / sizeof(options[0]));
+
+    if (selected_index < 0 || selected_index >= option_count) {
+        selected_index = 0;
+    }
+
+    render_live_menu("internet", "INTERNET MULTIPLAYER", options, subtitles, option_count, selected_index);
 }
 
 void cli_print_board(Game* game) {
@@ -726,8 +800,8 @@ void cli_print_about_screen(void) {
     printf("  " ANSI_CYAN "Version: " ANSI_RESET "v%s\n", APP_VERSION);
     printf("  " ANSI_CYAN "Author:  " ANSI_RESET "%s\n", APP_AUTHOR);
     printf("  " ANSI_CYAN "Contact: " ANSI_RESET "%s\n", APP_CONTACT);
-    printf("  " ANSI_CYAN "Mode:    " ANSI_RESET "CLI, AI, LAN, Replay, Achievements\n");
-    printf("  " ANSI_CYAN "Security:" ANSI_RESET " OpenSSL session encryption on LAN\n");
+    printf("  " ANSI_CYAN "Mode:    " ANSI_RESET "CLI, AI, LAN, Internet, Replay, Achievements\n");
+    printf("  " ANSI_CYAN "Security:" ANSI_RESET " OpenSSL session encryption on network modes\n");
     printf("\n  " ANSI_CYAN "[Enter] Back to Main Menu" ANSI_RESET "\n\n");
     printf(ANSI_BOLD "=======================================\n");
 }

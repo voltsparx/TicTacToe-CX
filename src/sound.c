@@ -91,6 +91,10 @@ void sound_play(Sound* sound, SoundType type) {
 #else
 
 static void beep_ascii(int style) {
+    if (!isatty(STDOUT_FILENO)) {
+        return;
+    }
+
     switch (style) {
         case 0:
             printf("\a");

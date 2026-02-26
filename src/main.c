@@ -14,6 +14,7 @@
 #include "game.h"
 #include "ai.h"
 #include "network.h"
+#include "internet.h"
 #include "utils.h"
 #include "gui.h"
 #include "sound.h"
@@ -27,11 +28,15 @@ static void get_input(char* buffer, size_t size);
 static void play_local_2p(Game* game);
 static void play_ai(Game* game, GameMode mode);
 static void play_network(Network* net, bool is_host);
+static void play_internet_network(Network* net, bool is_host);
+static void play_network_session(Network* net, bool is_host);
+static bool ensure_cloudflared_ready(void);
 static void run_ai_turn(Game* game);
 static void print_welcome_animation(void);
 static void sleep_seconds(unsigned int seconds);
 static void sleep_milliseconds(unsigned int milliseconds);
 static bool parse_move_input(const char* input, uint8_t board_size, uint8_t* row, uint8_t* col);
+static int parse_port_or_default(const char* text, int fallback);
 static void apply_config_to_game(Game* game);
 static bool launch_gui_mode(void);
 static void play_game_end_sound(const Game* game);
@@ -92,14 +97,14 @@ int main(int argc, char* argv[]) {
     int main_selection = 0;
 
     while (1) {
-        int choice = run_vertical_menu(cli_print_main_menu, 7, main_selection);
+        int choice = run_vertical_menu(cli_print_main_menu, 8, main_selection);
         if (choice < 0) {
-            choice = 6;
+            choice = 7;
         }
         main_selection = choice;
         sound_play(&global_sound, SOUND_MENU);
 
-        if (choice == 6) {
+        if (choice == 7) {
             printf(ANSI_YELLOW "\n  Thanks for playing TicTacToe-CX!\n");
             printf(ANSI_CYAN "  Made with " ANSI_RED "\u2665 " ANSI_CYAN "by voltsparx\n\n" ANSI_RESET);
             break;
@@ -158,12 +163,34 @@ int main(int argc, char* argv[]) {
             }
 
             case 3: {
+                int internet_selection = 0;
+                while (1) {
+                    int net_choice = run_vertical_menu(cli_print_internet_menu, 3, internet_selection);
+                    if (net_choice < 0 || net_choice == 2) {
+                        break;
+                    }
+
+                    internet_selection = net_choice;
+                    Network net;
+                    if (!network_init(&net)) {
+                        printf(ANSI_ERROR "\n  Network subsystem failed to initialize.\n" ANSI_RESET);
+                        sound_play(&global_sound, SOUND_INVALID);
+                        sleep_seconds(2);
+                        continue;
+                    }
+
+                    play_internet_network(&net, net_choice == 0);
+                }
+                break;
+            }
+
+            case 4: {
                 cli_print_highscores(&global_score);
                 get_input(input, sizeof(input));
                 break;
             }
 
-            case 4: {
+            case 5: {
                 static const int timer_cycle[] = {0, 10, 15, 30, 45, 60};
                 const int timer_cycle_count = (int)(sizeof(timer_cycle) / sizeof(timer_cycle[0]));
                 int settings_selection = 0;
@@ -240,7 +267,7 @@ int main(int argc, char* argv[]) {
                 break;
             }
 
-            case 5: {
+            case 6: {
                 cli_print_about_screen();
                 get_input(input, sizeof(input));
                 break;
@@ -432,6 +459,49 @@ static void run_ai_turn(Game* game) {
     }
 }
 
+static int parse_port_or_default(const char* text, int fallback) {
+    int port = fallback;
+    if (text && text[0] != '\0') {
+        int parsed = atoi(text);
+        if (parsed > 0 && parsed <= 65535) {
+            port = parsed;
+        }
+    }
+    return port;
+}
+
+static bool ensure_cloudflared_ready(void) {
+    char input[16];
+    char err[256];
+
+    if (internet_cloudflared_available()) {
+        return true;
+    }
+
+    printf(ANSI_YELLOW "\n  cloudflared is required for Internet mode but was not found.\n" ANSI_RESET);
+    printf(ANSI_CYAN "  Install cloudflared now? [Y/n]: " ANSI_RESET);
+    get_input(input, sizeof(input));
+
+    if (input[0] != '\0' && toupper((unsigned char)input[0]) == 'N') {
+        printf(ANSI_ERROR "  Internet mode canceled (cloudflared not installed).\n" ANSI_RESET);
+        return false;
+    }
+
+    printf(ANSI_CYAN "  Installing cloudflared...\n" ANSI_RESET);
+    if (!internet_install_cloudflared(err, sizeof(err))) {
+        printf(ANSI_ERROR "  %s\n" ANSI_RESET, err[0] ? err : "Automatic cloudflared install failed.");
+        return false;
+    }
+
+    if (!internet_cloudflared_available()) {
+        printf(ANSI_ERROR "  cloudflared still not found after install attempt.\n" ANSI_RESET);
+        return false;
+    }
+
+    printf(ANSI_GREEN "  cloudflared is ready.\n" ANSI_RESET);
+    return true;
+}
+
 static void play_network(Network* net, bool is_host) {
     char input[64];
     char passphrase[NETWORK_PASSPHRASE_MAX];
@@ -444,10 +514,7 @@ static void play_network(Network* net, bool is_host) {
     if (is_host) {
         printf(ANSI_CYAN "\n  Enter port (default %d): " ANSI_RESET, port);
         get_input(input, sizeof(input));
-        if (strlen(input) > 0) {
-            port = atoi(input);
-            if (port <= 0 || port > 65535) port = DEFAULT_PORT;
-        }
+        port = parse_port_or_default(input, port);
         
         if (network_host(net, port)) {
             printf(ANSI_GREEN "\n  Hosting on port %d...\n" ANSI_RESET, port);
@@ -480,7 +547,7 @@ static void play_network(Network* net, bool is_host) {
             return;
         }
     } else {
-        char ip[16] = "127.0.0.1";
+        char ip[64] = "127.0.0.1";
         printf(ANSI_CYAN "\n  Enter host IP (default 127.0.0.1): " ANSI_RESET);
         get_input(input, sizeof(input));
         if (strlen(input) > 0) {
@@ -494,10 +561,7 @@ static void play_network(Network* net, bool is_host) {
         
         printf(ANSI_CYAN "  Enter port (default %d): " ANSI_RESET, port);
         get_input(input, sizeof(input));
-        if (strlen(input) > 0) {
-            port = atoi(input);
-            if (port <= 0 || port > 65535) port = DEFAULT_PORT;
-        }
+        port = parse_port_or_default(input, port);
         
         if (network_connect(net, ip, port)) {
             printf(ANSI_GREEN "\n  Connected to %s:%d!\n" ANSI_RESET, ip, port);
@@ -509,6 +573,128 @@ static void play_network(Network* net, bool is_host) {
             return;
         }
     }
+
+    play_network_session(net, is_host);
+}
+
+static void play_internet_network(Network* net, bool is_host) {
+    char input[INTERNET_URL_MAX];
+    char passphrase[NETWORK_PASSPHRASE_MAX];
+    char err[256];
+    int port = DEFAULT_PORT;
+    InternetTunnel tunnel;
+
+    internet_tunnel_init(&tunnel);
+
+    if (!ensure_cloudflared_ready()) {
+        sound_play(&global_sound, SOUND_INVALID);
+        sleep_seconds(2);
+        return;
+    }
+
+    printf(ANSI_BRIGHT_CYAN "\n  Enter shared passphrase (blank = default): " ANSI_RESET);
+    get_input(passphrase, sizeof(passphrase));
+    network_set_passphrase(net, passphrase);
+
+    if (is_host) {
+        printf(ANSI_CYAN "\n  Enter game port (default %d): " ANSI_RESET, port);
+        get_input(input, sizeof(input));
+        port = parse_port_or_default(input, port);
+
+        if (!network_host(net, port)) {
+            printf(ANSI_ERROR "  Failed to host game on local port %d.\n" ANSI_RESET, port);
+            sound_play(&global_sound, SOUND_INVALID);
+            sleep_seconds(2);
+            return;
+        }
+
+        printf(ANSI_CYAN "  Starting cloudflared tunnel...\n" ANSI_RESET);
+        if (!internet_tunnel_start_host(&tunnel, port, 25, err, sizeof(err))) {
+            printf(ANSI_ERROR "  %s\n" ANSI_RESET, err[0] ? err : "Failed to create tunnel.");
+            sound_play(&global_sound, SOUND_INVALID);
+            network_close(net);
+            sleep_seconds(2);
+            return;
+        }
+
+        printf(ANSI_BRIGHT_GREEN "\n  Share this Internet join link:\n" ANSI_RESET);
+        printf(ANSI_YELLOW "  %s\n" ANSI_RESET, tunnel.public_url);
+        printf(ANSI_CYAN "  Opponent: Internet Multiplayer -> Join -> paste this link.\n" ANSI_RESET);
+        printf(ANSI_YELLOW "  Waiting for opponent to connect...\n" ANSI_RESET);
+
+        int wait_seconds = 0;
+        while (!net->connected && wait_seconds < 180) {
+            if (network_accept(net, 1000)) {
+                break;
+            }
+            printf(ANSI_CYAN "." ANSI_RESET);
+            fflush(stdout);
+            wait_seconds++;
+        }
+        printf("\n");
+
+        if (!net->connected) {
+            printf(ANSI_ERROR "  Timed out waiting for opponent.\n" ANSI_RESET);
+            sound_play(&global_sound, SOUND_INVALID);
+            internet_tunnel_stop(&tunnel);
+            network_close(net);
+            sleep_seconds(2);
+            return;
+        }
+
+        printf(ANSI_GREEN "  Player connected through tunnel!\n" ANSI_RESET);
+        sound_play(&global_sound, SOUND_MENU);
+        play_network_session(net, true);
+        internet_tunnel_stop(&tunnel);
+        return;
+    }
+
+    char hostname[INTERNET_HOSTNAME_MAX];
+    int local_proxy_port = DEFAULT_PORT + 1;
+
+    printf(ANSI_CYAN "\n  Enter host link or hostname: " ANSI_RESET);
+    get_input(input, sizeof(input));
+    if (!internet_extract_hostname(input, hostname, sizeof(hostname))) {
+        printf(ANSI_ERROR "  Invalid host link/hostname.\n" ANSI_RESET);
+        sound_play(&global_sound, SOUND_INVALID);
+        sleep_seconds(2);
+        return;
+    }
+
+    printf(ANSI_CYAN "  Local proxy port (default %d): " ANSI_RESET, local_proxy_port);
+    get_input(input, sizeof(input));
+    local_proxy_port = parse_port_or_default(input, local_proxy_port);
+
+    printf(ANSI_CYAN "  Starting cloudflared local proxy...\n" ANSI_RESET);
+    if (!internet_tunnel_start_client_proxy(&tunnel,
+                                            hostname,
+                                            local_proxy_port,
+                                            15,
+                                            err,
+                                            sizeof(err))) {
+        printf(ANSI_ERROR "  %s\n" ANSI_RESET, err[0] ? err : "Failed to start cloudflared proxy.");
+        sound_play(&global_sound, SOUND_INVALID);
+        internet_tunnel_stop(&tunnel);
+        sleep_seconds(2);
+        return;
+    }
+
+    if (!network_connect(net, "127.0.0.1", local_proxy_port)) {
+        printf(ANSI_ERROR "  Failed to connect to local tunnel proxy.\n" ANSI_RESET);
+        sound_play(&global_sound, SOUND_INVALID);
+        internet_tunnel_stop(&tunnel);
+        sleep_seconds(2);
+        return;
+    }
+
+    printf(ANSI_GREEN "  Connected to %s via local proxy 127.0.0.1:%d\n" ANSI_RESET, hostname, local_proxy_port);
+    sound_play(&global_sound, SOUND_MENU);
+    play_network_session(net, false);
+    internet_tunnel_stop(&tunnel);
+}
+
+static void play_network_session(Network* net, bool is_host) {
+    char input[64];
 
     if (!network_secure_handshake(net, 10000)) {
         printf(ANSI_ERROR "  Secure handshake failed. Check passphrase and try again.\n" ANSI_RESET);

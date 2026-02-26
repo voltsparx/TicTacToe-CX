@@ -1,12 +1,12 @@
 # TicTacToe-CX
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-v3.0-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Version-v3.1-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/C-99-green.svg" alt="C Standard">
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License">
 </p>
 
-A Tic Tac Toe game written in C with CLI, AI opponents, and LAN multiplayer.
+A Tic Tac Toe game written in C with CLI, AI opponents, LAN multiplayer, and cloudflared-based Internet multiplayer.
 
 ## Features
 
@@ -23,6 +23,12 @@ A Tic Tac Toe game written in C with CLI, AI opponents, and LAN multiplayer.
   - Host or join games via TCP sockets
   - Encrypted session with passphrase-based handshake
   - Real-time board synchronization
+
+- **Internet Multiplayer (CLI)**
+  - Host a game over the internet using `cloudflared` tunnel service
+  - Join with a shared cloudflared link/hostname
+  - Uses the same encrypted game handshake as LAN mode
+  - If `cloudflared` is missing, the game can prompt to install it
 
 ## Encryption Session (LAN)
 
@@ -107,17 +113,16 @@ Each installer asks for:
 1. `Install` mode (copy into a bin directory for regular use) or
 2. `Test` mode (build only in `build-<os>/bin/` inside the repo)
 
+In `Install` mode, scripts detect existing installs:
+
+1. If not installed yet, they do a normal install flow.
+2. If already installed, they ask whether to:
+   - Update existing install
+   - Uninstall/remove it
+   - Install to another path
+
 Termux users should launch with `bash building-scripts/run-termux.sh`.
 `--gui` is intentionally blocked on Termux.
-
-### Update Scripts
-
-Use the scripts in `update-scripts/` to pull latest code and rebuild:
-
-- Linux: `bash update-scripts/update-linux.sh --install`
-- macOS: `bash update-scripts/update-macos.sh --install`
-- Windows: `powershell -ExecutionPolicy Bypass -File .\update-scripts\update-windows.ps1 -Install`
-- Termux: `bash update-scripts/update-termux.sh`
 
 ### Running
 
@@ -132,12 +137,32 @@ Use the scripts in `update-scripts/` to pull latest code and rebuild:
 ./build-linux/bin/tictactoe-cx --version
 ```
 
+If your terminal shows visual artifacts, you can force compatibility mode:
+
+```bash
+TICTACTOE_NO_LIVE=1 TICTACTOE_ASCII=1 ./build-linux/bin/tictactoe-cx
+```
+
 ## How to Play
 
 1. Use **Up/Down** arrows and **Enter** to navigate menus
 2. Enter moves as `23` or `2 3` (row, column)
 3. In game, press `Q` to return to menu
 4. Open **About** from main menu for game/author/version details
+
+### Internet Mode (CLI)
+
+1. Open **Internet Multiplayer**.
+2. Host:
+   - choose **Host Internet Game**
+   - share the generated cloudflared link with your opponent.
+3. Join:
+   - choose **Join Internet Game**
+   - paste the host link (or hostname) and connect.
+
+Notes:
+- Both players should have `cloudflared` installed.
+- The game can attempt automatic install when `cloudflared` is missing.
 
 ### GUI Controls
 
@@ -178,9 +203,9 @@ TicTacToe-CX/
 │   ├── cli.c/h     # CLI rendering with ANSI colors
 │   ├── ai.c/h      # AI opponents
 │   ├── network.c/h # LAN multiplayer
+│   ├── internet.c/h # Cloudflared tunnel integration
 │   └── utils.c/h   # Data/config/score storage helpers
 ├── building-scripts/      # Install/test build scripts
-├── update-scripts/        # Pull + rebuild helpers for each platform
 ├── CMakeLists.txt
 └── README.md
 ```

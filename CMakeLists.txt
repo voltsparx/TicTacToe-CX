@@ -31,6 +31,7 @@ set(SOURCES
     src/cli.c
     src/ai.c
     src/network.c
+    src/internet.c
     src/utils.c
     src/achievements.c
     src/replay.c
@@ -102,7 +103,7 @@ endif()
 
 message(STATUS "")
 message(STATUS "TicTacToe-CX Build Configuration")
-message(STATUS "  Version: v3.0")
+message(STATUS "  Version: v3.1")
 message(STATUS "  C Standard: C99")
 message(STATUS "  Platform: ${CMAKE_SYSTEM_NAME}")
 message(STATUS "  Features: CLI, AI, Network, Achievements, Replay")

@@ -10,6 +10,7 @@ This folder contains install/build helpers for each platform:
 - `build-windows-from-linux.sh`
 
 All installers include OpenSSL because secure LAN mode uses authenticated encryption.
+Internet Multiplayer additionally requires `cloudflared` at runtime (the game can prompt to install it when missing).
 
 Each installer now supports two flows:
 
@@ -17,6 +18,23 @@ Each installer now supports two flows:
 2. `Test`: build only in the project under `build-<os>/bin/`.
 
 In `Test` mode, scripts avoid system package installation and only build with existing local toolchains.
+
+In `Install` mode, scripts auto-detect if `tictactoe-cx` is already installed:
+
+1. If not installed, they proceed with normal installation.
+2. If installed, they prompt for:
+   - Update existing installation
+   - Uninstall/remove existing installation
+   - Install to another location
+
+You can also force behavior with flags:
+
+- Linux/macOS/Termux:
+  - `--update-existing`
+  - `--uninstall-existing`
+- Windows:
+  - `-UpdateExisting`
+  - `-UninstallExisting`
 
 To launch GUI mode after build (SDL2 + SDL2_ttf required):
 

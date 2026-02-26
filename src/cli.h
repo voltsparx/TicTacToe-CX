@@ -68,6 +68,7 @@ void cli_print_title(void);
 void cli_print_main_menu(int selected_index);
 void cli_print_game_menu(int selected_index);
 void cli_print_network_menu(int selected_index);
+void cli_print_internet_menu(int selected_index);
 void cli_print_board(Game* game);
 void cli_print_move_prompt(void);
 void cli_print_game_over(Game* game);
