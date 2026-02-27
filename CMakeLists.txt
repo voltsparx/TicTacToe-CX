@@ -37,6 +37,8 @@ set(SOURCES
     src/replay.c
     src/sound.c
     src/gui.c
+        src/cli.c
+        src/cli.c
 )
 
 if(ENABLE_SDL2)
@@ -82,7 +84,8 @@ else()
     message(STATUS "SDL2 support: DISABLED")
 endif()
 
-add_executable(${PROJECT_NAME} ${SOURCES})
+add_executable(${PROJECT_NAME} ${SOURCES}
+        src/cli.c)
 
 set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "tictactoe-cx")
 

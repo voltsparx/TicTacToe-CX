@@ -590,7 +590,7 @@ void cli_print_title(void) {
 
 void cli_print_main_menu(int selected_index) {
     static const char* options[] = {
-        "Play vs AI",
+        "Player vs AI",
         "Two Player Local",
         "LAN Multiplayer",
         "Internet Multiplayer",
@@ -615,7 +615,7 @@ void cli_print_main_menu(int selected_index) {
         selected_index = 0;
     }
 
-    render_live_menu("main", "TICTACTOE-CX MAIN MENU", options, subtitles, option_count, selected_index);
+    render_live_menu("main", "TICTACTOE-CX", options, subtitles, option_count, selected_index);
 }
 
 void cli_print_game_menu(int selected_index) {
@@ -757,13 +757,13 @@ void cli_print_board(Game* game) {
     }
 
     printf("\n");
-    printf("  " ANSI_GRAY "Move format: 23 or 2 3 | Press Q to return to menu" ANSI_RESET "\n");
+    printf("  " ANSI_GRAY "Move format: e.g.: 23 or 2 3 | Press Q to return to menu" ANSI_RESET "\n");
     fflush(stdout);
 }
 
 void cli_print_move_prompt(void) {
     print_theme_colors();
-    printf("\n  " COLOR_PROMPT "Enter move (23 or 2 3): " ANSI_RESET);
+    printf("\n  " COLOR_PROMPT "Enter move (row column): " ANSI_RESET);
 }
 
 void cli_print_game_over(Game* game) {
@@ -773,17 +773,17 @@ void cli_print_game_over(Game* game) {
         Player winner = game_get_winner(game);
         if (winner == PLAYER_X) {
             printf(ANSI_BOLD "  +======================================+\n");
-            printf(        "  |      " COLOR_X "  %c WINS!  " ANSI_BOLD "               |\n", game->symbol_x);
-            printf(        "  +======================================+" ANSI_RESET "\n");
+            printf(          "  |             " COLOR_X "  %c WINS!  " ANSI_BOLD "              |\n", game->symbol_x);
+            printf(          "  +======================================+" ANSI_RESET "\n");
         } else {
             printf(ANSI_BOLD "  +======================================+\n");
-            printf(        "  |      " COLOR_O "  %c WINS!  " ANSI_BOLD "               |\n", game->symbol_o);
-            printf(        "  +======================================+" ANSI_RESET "\n");
+            printf(          "  |              " COLOR_O "  %c WINS!  " ANSI_BOLD "             |\n", game->symbol_o);
+            printf(          "  +======================================+" ANSI_RESET "\n");
         }
     } else if (game->state == GAME_STATE_DRAW) {
-        printf(ANSI_BOLD "  +======================================+\n");
-        printf(        "  |      " COLOR_DRAW "  IT'S A DRAW!  " ANSI_BOLD "               |\n");
-        printf(        "  +======================================+" ANSI_RESET "\n");
+        printf(ANSI_BOLD     "  +======================================+\n");
+        printf(              "  |              " COLOR_DRAW "  IT'S A DRAW!  " ANSI_BOLD "             |\n");
+        printf(              "  +======================================+" ANSI_RESET "\n");
     }
     
     printf("\n");
@@ -794,7 +794,7 @@ void cli_print_about_screen(void) {
     print_theme_colors();
 
     printf(ANSI_BOLD "\n=======================================\n");
-    printf("              " ANSI_YELLOW " ABOUT " ANSI_RESET "\n");
+    printf("             " ANSI_YELLOW " ABOUT " ANSI_RESET "\n");
     printf(ANSI_BOLD "=======================================\n\n");
     printf("  " ANSI_CYAN "Game:    " ANSI_RESET "%s\n", APP_NAME);
     printf("  " ANSI_CYAN "Version: " ANSI_RESET "v%s\n", APP_VERSION);
