@@ -6,7 +6,7 @@
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License">
 </p>
 
-A Tic Tac Toe game written in C with CLI, AI opponents, LAN multiplayer, and cloudflared-based Internet multiplayer.
+A Tic Tac Toe game written in C with CLI, Nano AI opponents, LAN multiplayer, and cloudflared-based Internet multiplayer.
 
 ## Features
 
